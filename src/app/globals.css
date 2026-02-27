@@ -1,0 +1,80 @@
+@import "tailwindcss";
+
+:root {
+  --background: #05110d;
+  --foreground: #edf6ef;
+  --muted: #93a39a;
+  --surface: #0b1c16;
+  --surface-strong: #10261e;
+  --accent: #b8ff6a;
+  --highlight: #ff935c;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-display);
+  --font-mono: var(--font-mono);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-display), sans-serif;
+  min-height: 100vh;
+}
+
+body::before {
+  background:
+    linear-gradient(120deg, rgba(184, 255, 106, 0.08), transparent 30%),
+    radial-gradient(circle at 20% 20%, rgba(255, 147, 92, 0.12), transparent 35%);
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: fixed;
+  z-index: -2;
+}
+
+body::after {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-position: center;
+  background-size: 44px 44px;
+  content: "";
+  inset: 0;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.85), transparent 92%);
+  opacity: 0.22;
+  pointer-events: none;
+  position: fixed;
+  z-index: -1;
+}
+
+a,
+button,
+input {
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+button:hover,
+a:hover {
+  transform: translateY(-1px);
+}
+
+::selection {
+  background: var(--accent);
+  color: #052014;
+}
