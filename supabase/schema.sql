@@ -535,16 +535,10 @@ on public.rps_rounds
 for select
 using (true);
 
-drop policy if exists "public read moves" on public.rps_moves;
-create policy "public read moves"
-on public.rps_moves
-for select
-using (true);
-
 grant select on public.game_rooms to anon, authenticated;
 grant select on public.room_players to anon, authenticated;
 grant select on public.rps_rounds to anon, authenticated;
-grant select on public.rps_moves to anon, authenticated;
+revoke all on public.rps_moves from anon, authenticated;
 
 revoke all on function public.create_rps_room(text) from public;
 revoke all on function public.join_rps_room(text, text) from public;
@@ -593,14 +587,4 @@ begin
     alter publication supabase_realtime add table public.rps_rounds;
   end if;
 
-  if not exists (
-    select 1
-    from pg_publication_rel rel
-    join pg_class cls on cls.oid = rel.prrelid
-    join pg_publication pub on pub.oid = rel.prpubid
-    where pub.pubname = 'supabase_realtime'
-      and cls.relname = 'rps_moves'
-  ) then
-    alter publication supabase_realtime add table public.rps_moves;
-  end if;
 end $$;

@@ -139,6 +139,20 @@ function RpsRoomContent() {
   }, [roomCode]);
 
   useEffect(() => {
+    if (!roomCode || !isSupabaseConfigured()) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadSnapshot(roomCode);
+    }, 2000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [roomCode]);
+
+  useEffect(() => {
     if (!snapshot?.roomId) {
       return;
     }
@@ -182,16 +196,6 @@ function RpsRoomContent() {
           filter: `room_id=eq.${snapshot.roomId}`,
           schema: "public",
           table: "rps_rounds",
-        },
-        syncRoom,
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          filter: `room_id=eq.${snapshot.roomId}`,
-          schema: "public",
-          table: "rps_moves",
         },
         syncRoom,
       )
