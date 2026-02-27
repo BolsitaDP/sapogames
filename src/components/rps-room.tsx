@@ -382,60 +382,43 @@ function RpsRoomContent() {
     snapshot.currentRound.status === "revealed";
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(184,255,106,0.16),_transparent_35%),linear-gradient(180deg,_#04110d_0%,_#071d17_55%,_#03100c_100%)] px-4 py-6 text-stone-50 sm:px-6 lg:px-10">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-        <header className="rounded-[32px] border border-white/10 bg-white/5 p-5 backdrop-blur sm:p-7">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-2xl space-y-4">
+    <main className="min-h-screen bg-[#050816] px-4 py-6 text-stone-100 sm:px-6 lg:px-8">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
+        <header className="rounded-[28px] border border-white/8 bg-black/30 p-5 backdrop-blur sm:p-6">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-3">
               <Link
                 href="/"
-                className="inline-flex rounded-full border border-white/15 px-3 py-1 text-xs uppercase tracking-[0.24em] text-lime-200/80 transition hover:border-lime-300 hover:text-lime-100"
+                className="inline-flex rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-stone-400 transition hover:border-white/20 hover:text-stone-200"
               >
-                Volver al menu
+                Menu
               </Link>
-              <div className="space-y-3">
-                <p className="text-xs uppercase tracking-[0.3em] text-orange-200/80">
-                  {liveGame?.eyebrow}
+              <div className="space-y-2">
+                <p className="text-[11px] uppercase tracking-[0.3em] text-stone-500">
+                  {liveGame?.eyebrow ?? "Juego"}
                 </p>
-                <h1 className="max-w-xl font-[family-name:var(--font-display)] text-4xl leading-none sm:text-5xl">
+                <h1 className="font-[family-name:var(--font-display)] text-3xl leading-none sm:text-4xl">
                   {liveGame?.title}
                 </h1>
-                <p className="max-w-2xl text-sm leading-7 text-stone-300 sm:text-base">
-                  Crea una sala desde tu celular, comparte el link y jueguen sin
-                  registro. La base ya queda preparada para sumar mas minijuegos
-                  despues.
-                </p>
               </div>
             </div>
 
-            <div className="grid gap-3 rounded-[28px] border border-white/10 bg-black/20 p-4 text-sm text-stone-200 sm:grid-cols-3 sm:text-base">
-              <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-lime-200/70">
-                  Flujo
-                </p>
-                <p className="mt-2">Crear, compartir, entrar y jugar.</p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-lime-200/70">
-                  Backend
-                </p>
-                <p className="mt-2">Supabase con realtime y RPC.</p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-lime-200/70">
-                  Deploy
-                </p>
-                <p className="mt-2">Export estatico para GitHub Pages.</p>
-              </div>
+            <div className="flex flex-wrap gap-2 text-sm text-stone-400">
+              <span className="rounded-full border border-white/8 px-3 py-2">
+                Sala por link
+              </span>
+              <span className="rounded-full border border-white/8 px-3 py-2">
+                2 jugadores
+              </span>
             </div>
           </div>
         </header>
 
-        <div className="grid gap-6 lg:grid-cols-[1.1fr,0.9fr]">
-          <section className="rounded-[32px] border border-white/10 bg-[#081812]/90 p-5 shadow-[0_30px_80px_rgba(0,0,0,0.3)] sm:p-7">
+        <div className="grid gap-5 lg:grid-cols-[1fr,320px]">
+          <section className="rounded-[28px] border border-white/8 bg-black/30 p-5 shadow-[0_20px_80px_rgba(0,0,0,0.4)] backdrop-blur sm:p-6">
             {!isSupabaseConfigured() ? (
               <div className="space-y-4">
-                <p className="text-sm uppercase tracking-[0.3em] text-orange-200/80">
+                <p className="text-sm uppercase tracking-[0.3em] text-stone-500">
                   Configuracion pendiente
                 </p>
                 <h2 className="font-[family-name:var(--font-display)] text-3xl">
@@ -455,36 +438,23 @@ function RpsRoomContent() {
               </div>
             ) : !roomCode ? (
               <div className="space-y-8">
-                <div className="space-y-3">
-                  <p className="text-xs uppercase tracking-[0.3em] text-lime-200/80">
-                    Crear una sala
-                  </p>
-                  <h2 className="font-[family-name:var(--font-display)] text-3xl">
-                    Arranca una partida en menos de un minuto.
-                  </h2>
-                  <p className="max-w-xl text-sm leading-7 text-stone-300 sm:text-base">
-                    Este enlace sera el punto de entrada para ti y tu amigo. La
-                    idea es que desde el home puedas ir agregando mas juegos sin
-                    cambiar el flujo de compartir sala.
-                  </p>
-                </div>
+                <h2 className="font-[family-name:var(--font-display)] text-2xl">
+                  Crear sala
+                </h2>
 
                 <div className="grid gap-4 md:grid-cols-[1fr,auto]">
                   <label className="space-y-2">
-                    <span className="text-xs uppercase tracking-[0.24em] text-stone-400">
-                      Tu apodo
-                    </span>
                     <input
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-base outline-none transition focus:border-lime-300"
+                      className="w-full rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-base outline-none transition focus:border-white/20"
                       maxLength={24}
                       onChange={(event) => setNickname(event.target.value)}
-                      placeholder="Santi, Ana, Tavo..."
+                      placeholder="Tu apodo"
                       value={nickname}
                     />
                   </label>
 
                   <button
-                    className="rounded-2xl bg-lime-300 px-6 py-3 font-semibold text-[#062417] transition hover:bg-lime-200 disabled:cursor-not-allowed disabled:bg-lime-300/50"
+                    className="rounded-2xl bg-white px-6 py-3 font-semibold text-black transition hover:bg-stone-100 disabled:cursor-not-allowed disabled:bg-white/40"
                     disabled={busyAction === "create"}
                     onClick={handleCreateRoom}
                     type="button"
@@ -494,60 +464,48 @@ function RpsRoomContent() {
                 </div>
 
                 <form
-                  className="space-y-4 rounded-[28px] border border-white/10 bg-black/20 p-4"
+                  className="space-y-4 rounded-[24px] border border-white/8 bg-white/[0.02] p-4"
                   onSubmit={handleManualJoinSubmit}
                 >
-                  <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-[0.24em] text-orange-200/70">
-                      Entrar por codigo
-                    </p>
-                    <input
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-base uppercase outline-none transition focus:border-orange-300"
-                      maxLength={6}
-                      onChange={(event) => setManualCode(event.target.value)}
-                      placeholder="AB12CD"
-                      value={manualCode}
-                    />
-                  </div>
+                  <input
+                    className="w-full rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-base uppercase outline-none transition focus:border-white/20"
+                    maxLength={6}
+                    onChange={(event) => setManualCode(event.target.value)}
+                    placeholder="Codigo de sala"
+                    value={manualCode}
+                  />
                   <button
-                    className="rounded-2xl border border-white/15 px-5 py-3 text-sm font-semibold text-stone-100 transition hover:border-orange-300 hover:text-orange-100"
+                    className="rounded-2xl border border-white/10 px-5 py-3 text-sm font-semibold text-stone-100 transition hover:border-white/20"
                     type="submit"
                   >
-                    Ir a la sala
+                    Entrar
                   </button>
                 </form>
               </div>
             ) : !session ? (
               <div className="space-y-8">
-                <div className="space-y-3">
-                  <p className="text-xs uppercase tracking-[0.3em] text-lime-200/80">
+                <div className="space-y-2">
+                  <p className="text-xs uppercase tracking-[0.3em] text-stone-500">
                     Sala {roomCode}
                   </p>
-                  <h2 className="font-[family-name:var(--font-display)] text-3xl">
-                    Entra directo y juega.
+                  <h2 className="font-[family-name:var(--font-display)] text-2xl">
+                    Entrar
                   </h2>
-                  <p className="max-w-xl text-sm leading-7 text-stone-300 sm:text-base">
-                    El link ya apunta a la sala. Solo falta tu apodo para unir el
-                    segundo jugador o reingresar desde este dispositivo.
-                  </p>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-[1fr,auto]">
                   <label className="space-y-2">
-                    <span className="text-xs uppercase tracking-[0.24em] text-stone-400">
-                      Tu apodo
-                    </span>
                     <input
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-base outline-none transition focus:border-lime-300"
+                      className="w-full rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-base outline-none transition focus:border-white/20"
                       maxLength={24}
                       onChange={(event) => setNickname(event.target.value)}
-                      placeholder="Tu nombre para la partida"
+                      placeholder="Tu apodo"
                       value={nickname}
                     />
                   </label>
 
                   <button
-                    className="rounded-2xl bg-lime-300 px-6 py-3 font-semibold text-[#062417] transition hover:bg-lime-200 disabled:cursor-not-allowed disabled:bg-lime-300/50"
+                    className="rounded-2xl bg-white px-6 py-3 font-semibold text-black transition hover:bg-stone-100 disabled:cursor-not-allowed disabled:bg-white/40"
                     disabled={busyAction === "join"}
                     onClick={handleJoinRoom}
                     type="button"
@@ -559,21 +517,21 @@ function RpsRoomContent() {
             ) : (
               <div className="space-y-8">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="space-y-3">
-                    <p className="text-xs uppercase tracking-[0.3em] text-lime-200/80">
+                  <div className="space-y-2">
+                    <p className="text-xs uppercase tracking-[0.3em] text-stone-500">
                       Sala {snapshot?.roomCode ?? roomCode}
                     </p>
-                    <h2 className="font-[family-name:var(--font-display)] text-3xl">
+                    <h2 className="font-[family-name:var(--font-display)] text-2xl">
                       Ronda {snapshot?.currentRound.roundNumber ?? 1}
                     </h2>
-                    <p className="max-w-xl text-sm leading-7 text-stone-300 sm:text-base">
+                    <p className="max-w-xl text-sm leading-6 text-stone-400">
                       {liveStatus}
                     </p>
                   </div>
 
                   <div className="flex flex-wrap gap-3">
                     <button
-                      className="rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-[#072117] transition hover:bg-stone-200"
+                      className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-stone-100 transition hover:border-white/20"
                       onClick={handleShare}
                       type="button"
                     >
@@ -587,12 +545,12 @@ function RpsRoomContent() {
                 </div>
 
                 <div className="grid gap-4 lg:grid-cols-[0.95fr,1.05fr]">
-                  <div className="space-y-4 rounded-[28px] border border-white/10 bg-black/20 p-4">
+                  <div className="space-y-4 rounded-[24px] border border-white/8 bg-white/[0.02] p-4">
                     <div className="flex items-center justify-between">
-                      <p className="text-xs uppercase tracking-[0.24em] text-stone-400">
+                      <p className="text-xs uppercase tracking-[0.24em] text-stone-500">
                         Jugadores
                       </p>
-                      <p className="text-sm text-stone-300">
+                      <p className="text-sm text-stone-400">
                         {snapshot?.playerCount ?? 0}/2
                       </p>
                     </div>
@@ -603,7 +561,7 @@ function RpsRoomContent() {
                         return (
                           <div
                             key={player.id}
-                            className="rounded-2xl border border-white/8 bg-white/5 px-4 py-3"
+                            className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3"
                           >
                             <div className="flex items-center justify-between gap-3">
                               <div>
@@ -615,7 +573,7 @@ function RpsRoomContent() {
                                 </p>
                               </div>
                               {player.isHost ? (
-                                <span className="rounded-full border border-lime-200/20 bg-lime-300/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-lime-100">
+                                <span className="rounded-full border border-white/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-stone-300">
                                   Host
                                 </span>
                               ) : null}
@@ -632,12 +590,12 @@ function RpsRoomContent() {
                     </div>
                   </div>
 
-                  <div className="space-y-4 rounded-[28px] border border-white/10 bg-white/[0.03] p-4">
+                  <div className="space-y-4 rounded-[24px] border border-white/8 bg-white/[0.02] p-4">
                     <div className="flex items-center justify-between">
-                      <p className="text-xs uppercase tracking-[0.24em] text-stone-400">
+                      <p className="text-xs uppercase tracking-[0.24em] text-stone-500">
                         Tablero
                       </p>
-                      <p className="text-sm text-stone-300">
+                      <p className="text-sm text-stone-400">
                         {alreadyPlayed ? "Jugada enviada" : "Listo para elegir"}
                       </p>
                     </div>
@@ -650,7 +608,7 @@ function RpsRoomContent() {
                         return (
                           <button
                             key={option.choice}
-                            className="rounded-[28px] border border-white/10 bg-black/20 p-4 text-left transition hover:border-lime-300/60 hover:bg-lime-300/10 disabled:cursor-not-allowed disabled:opacity-40"
+                            className="rounded-[24px] border border-white/8 bg-black/20 p-4 text-left transition hover:border-white/20 hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-40"
                             disabled={disabled}
                             onClick={() => handleSubmitMove(option.choice)}
                             type="button"
@@ -665,13 +623,13 @@ function RpsRoomContent() {
                     </div>
 
                     {snapshot?.currentRound.status === "revealed" ? (
-                      <div className="space-y-3 rounded-[28px] border border-orange-200/15 bg-orange-300/10 p-4">
+                      <div className="space-y-3 rounded-[24px] border border-white/8 bg-black/20 p-4">
                         <div className="flex items-center justify-between gap-4">
                           <div>
-                            <p className="text-xs uppercase tracking-[0.24em] text-orange-100/70">
+                            <p className="text-xs uppercase tracking-[0.24em] text-stone-500">
                               Resultado
                             </p>
-                            <p className="mt-2 text-lg font-semibold text-orange-50">
+                            <p className="mt-2 text-lg font-semibold text-stone-100">
                               {snapshot.currentRound.winnerPlayerId
                                 ? `${snapshot.currentRound.winnerNickname} gano la ronda`
                                 : "Empate"}
@@ -680,7 +638,7 @@ function RpsRoomContent() {
 
                           {canStartNewRound ? (
                             <button
-                              className="rounded-2xl border border-orange-200/25 bg-black/20 px-4 py-3 text-sm font-semibold text-orange-50 transition hover:border-orange-200/60"
+                              className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-stone-100 transition hover:border-white/20"
                               disabled={busyAction === "next-round"}
                               onClick={handleNextRound}
                               type="button"
@@ -696,7 +654,7 @@ function RpsRoomContent() {
                           {snapshot.currentRound.revealedMoves.map((move) => (
                             <div
                               key={move.playerId}
-                              className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3"
+                              className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3"
                             >
                               <p className="text-sm text-stone-400">
                                 {move.nickname}
@@ -711,14 +669,10 @@ function RpsRoomContent() {
                     ) : null}
 
                     {snapshot?.currentRound.status === "pending" ? (
-                      <div className="rounded-[28px] border border-white/10 bg-black/20 p-4 text-sm text-stone-300">
+                      <div className="rounded-[24px] border border-white/8 bg-black/20 p-4 text-sm text-stone-400">
                         <p>
                           Jugadas enviadas: {snapshot.currentRound.submittedCount}/
                           {snapshot.playerCount}
-                        </p>
-                        <p className="mt-2 text-stone-400">
-                          Las elecciones se mantienen ocultas hasta que ambos
-                          envien la suya.
                         </p>
                       </div>
                     ) : null}
@@ -740,24 +694,28 @@ function RpsRoomContent() {
             ) : null}
           </section>
 
-          <aside className="space-y-6">
-            <section className="rounded-[32px] border border-white/10 bg-white/5 p-5 backdrop-blur sm:p-6">
-              <p className="text-xs uppercase tracking-[0.24em] text-lime-200/70">
-                Como va a crecer
+          <aside className="space-y-5">
+            <section className="rounded-[28px] border border-white/8 bg-black/30 p-5 backdrop-blur">
+              <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">
+                Sala
               </p>
-              <h2 className="mt-3 font-[family-name:var(--font-display)] text-2xl">
-                Menu unico, backend compartido.
-              </h2>
-              <div className="mt-5 space-y-3 text-sm leading-7 text-stone-300">
-                <p>Las salas son genericas y guardan el slug del juego.</p>
-                <p>El realtime ya esta preparado para que luego metas otros modos.</p>
-                <p>El link compartido sigue el mismo patron para futuros juegos.</p>
+              <div className="mt-4 space-y-3">
+                <div className="rounded-2xl border border-white/8 bg-white/[0.02] px-4 py-3">
+                  <p className="text-xs text-stone-500">Codigo</p>
+                  <p className="mt-1 text-xl font-semibold text-stone-100">
+                    {(snapshot?.roomCode ?? roomCode) || "----"}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/8 bg-white/[0.02] px-4 py-3">
+                  <p className="text-xs text-stone-500">Estado</p>
+                  <p className="mt-1 text-sm text-stone-300">{liveStatus}</p>
+                </div>
               </div>
             </section>
 
-            <section className="rounded-[32px] border border-white/10 bg-[#0b1d16] p-5 sm:p-6">
-              <p className="text-xs uppercase tracking-[0.24em] text-orange-200/70">
-                Siguientes juegos
+            <section className="rounded-[28px] border border-white/8 bg-black/30 p-5 backdrop-blur">
+              <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">
+                Otros juegos
               </p>
               <div className="mt-4 space-y-3">
                 {gameCards
@@ -765,16 +723,13 @@ function RpsRoomContent() {
                   .map((game) => (
                     <div
                       key={game.slug}
-                      className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4"
+                      className="rounded-2xl border border-white/8 bg-white/[0.02] px-4 py-3"
                     >
-                      <p className="text-sm uppercase tracking-[0.2em] text-stone-400">
-                        {game.eyebrow}
-                      </p>
-                      <p className="mt-2 text-lg font-semibold text-stone-50">
+                      <p className="text-sm font-medium text-stone-200">
                         {game.title}
                       </p>
-                      <p className="mt-2 text-sm leading-6 text-stone-300">
-                        {game.description}
+                      <p className="mt-1 text-xs uppercase tracking-[0.22em] text-stone-500">
+                        {game.eyebrow}
                       </p>
                     </div>
                   ))}
@@ -789,8 +744,8 @@ function RpsRoomContent() {
 
 function RpsRoomFallback() {
   return (
-    <main className="min-h-screen bg-[#06130f] px-4 py-8 text-stone-50">
-      <div className="mx-auto max-w-4xl rounded-[32px] border border-white/10 bg-white/5 p-6">
+    <main className="min-h-screen bg-[#050816] px-4 py-8 text-stone-100">
+      <div className="mx-auto max-w-4xl rounded-[28px] border border-white/8 bg-black/30 p-6 backdrop-blur">
         <p className="text-sm text-stone-300">Cargando sala...</p>
       </div>
     </main>

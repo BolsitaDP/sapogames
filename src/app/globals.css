@@ -1,13 +1,13 @@
 @import "tailwindcss";
 
 :root {
-  --background: #05110d;
-  --foreground: #edf6ef;
-  --muted: #93a39a;
-  --surface: #0b1c16;
-  --surface-strong: #10261e;
-  --accent: #b8ff6a;
-  --highlight: #ff935c;
+  --background: #050816;
+  --foreground: #f4f4f5;
+  --muted: #8d93a5;
+  --surface: #0d111d;
+  --surface-strong: #141a27;
+  --accent: #ffffff;
+  --highlight: #9aa4ff;
 }
 
 @theme inline {
@@ -34,8 +34,8 @@ body {
 
 body::before {
   background:
-    linear-gradient(120deg, rgba(184, 255, 106, 0.08), transparent 30%),
-    radial-gradient(circle at 20% 20%, rgba(255, 147, 92, 0.12), transparent 35%);
+    radial-gradient(circle at top, rgba(154, 164, 255, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 40%);
   content: "";
   inset: 0;
   pointer-events: none;
@@ -45,8 +45,8 @@ body::before {
 
 body::after {
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
   background-position: center;
   background-size: 44px 44px;
   content: "";
@@ -76,5 +76,5 @@ a:hover {
 
 ::selection {
   background: var(--accent);
-  color: #052014;
+  color: #050816;
 }
