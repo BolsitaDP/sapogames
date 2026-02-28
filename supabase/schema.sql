@@ -13,7 +13,7 @@ create table if not exists public.game_rooms (
 alter table public.game_rooms drop constraint if exists game_rooms_game_slug_check;
 alter table public.game_rooms
   add constraint game_rooms_game_slug_check
-  check (game_slug in ('rps', 'ttt', 'bj'));
+  check (game_slug in ('rps', 'ttt', 'bj', 'bjd'));
 
 create table if not exists public.room_players (
   id uuid primary key default gen_random_uuid(),
@@ -86,6 +86,30 @@ create table if not exists public.bj_player_hands (
   unique (round_id, player_id)
 );
 
+create table if not exists public.bjd_rounds (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.game_rooms(id) on delete cascade,
+  round_number integer not null,
+  status text not null default 'pending' check (status in ('pending', 'revealed')),
+  deck text[] not null default array[]::text[],
+  next_card_index integer not null default 1,
+  created_at timestamptz not null default now(),
+  resolved_at timestamptz
+);
+
+create table if not exists public.bjd_player_hands (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.game_rooms(id) on delete cascade,
+  round_id uuid not null references public.bjd_rounds(id) on delete cascade,
+  player_id uuid not null references public.room_players(id) on delete cascade,
+  cards text[] not null default array[]::text[],
+  turn_status text not null default 'active' check (turn_status in ('active', 'stood', 'bust', 'blackjack')),
+  outcome text check (outcome in ('win', 'lose', 'push')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (round_id, player_id)
+);
+
 do $$
 begin
   if not exists (
@@ -127,6 +151,18 @@ begin
   if not exists (
     select 1
     from pg_constraint
+    where conname = 'bjd_rounds_room_round_unique'
+  ) then
+    alter table public.bjd_rounds
+      add constraint bjd_rounds_room_round_unique unique (room_id, round_number);
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
     where conname = 'game_rooms_host_player_fk'
   ) then
     alter table public.game_rooms
@@ -156,6 +192,12 @@ execute function public.touch_updated_at();
 drop trigger if exists trg_bj_player_hands_updated_at on public.bj_player_hands;
 create trigger trg_bj_player_hands_updated_at
 before update on public.bj_player_hands
+for each row
+execute function public.touch_updated_at();
+
+drop trigger if exists trg_bjd_player_hands_updated_at on public.bjd_player_hands;
+create trigger trg_bjd_player_hands_updated_at
+before update on public.bjd_player_hands
 for each row
 execute function public.touch_updated_at();
 
@@ -1711,6 +1753,578 @@ begin
 end;
 $$;
 
+create or replace function public.resolve_bjd_round(round_id_input uuid)
+returns void
+language plpgsql
+set search_path = public, extensions
+as $$
+declare
+  v_round public.bjd_rounds;
+  v_best_total integer;
+  v_winner_count integer;
+  v_blackjack_count integer;
+begin
+  select *
+  into v_round
+  from public.bjd_rounds
+  where id = round_id_input
+  for update;
+
+  if not found then
+    raise exception 'La ronda no existe.';
+  end if;
+
+  select count(*)
+  into v_blackjack_count
+  from public.bjd_player_hands
+  where round_id = v_round.id
+    and turn_status = 'blackjack';
+
+  if v_blackjack_count > 0 then
+    update public.bjd_player_hands
+    set outcome = case
+      when turn_status = 'blackjack' and v_blackjack_count = 1 then 'win'
+      when turn_status = 'blackjack' and v_blackjack_count > 1 then 'push'
+      when v_blackjack_count > 1 then 'push'
+      else 'lose'
+    end
+    where round_id = v_round.id;
+
+    update public.bjd_rounds
+    set
+      status = 'revealed',
+      resolved_at = now()
+    where id = v_round.id;
+
+    return;
+  end if;
+
+  if exists (
+    select 1
+    from public.bjd_player_hands
+    where round_id = v_round.id
+      and turn_status = 'active'
+  ) then
+    update public.bjd_rounds
+    set status = 'pending'
+    where id = v_round.id;
+
+    return;
+  end if;
+
+  select max(public.bj_hand_total(cards))
+  into v_best_total
+  from public.bjd_player_hands
+  where round_id = v_round.id
+    and turn_status <> 'bust';
+
+  if v_best_total is null then
+    update public.bjd_player_hands
+    set outcome = 'push'
+    where round_id = v_round.id;
+  else
+    select count(*)
+    into v_winner_count
+    from public.bjd_player_hands
+    where round_id = v_round.id
+      and turn_status <> 'bust'
+      and public.bj_hand_total(cards) = v_best_total;
+
+    update public.bjd_player_hands
+    set outcome = case
+      when turn_status = 'bust' then 'lose'
+      when public.bj_hand_total(cards) = v_best_total and v_winner_count = 1 then 'win'
+      when public.bj_hand_total(cards) = v_best_total then 'push'
+      else 'lose'
+    end
+    where round_id = v_round.id;
+  end if;
+
+  update public.bjd_rounds
+  set
+    status = 'revealed',
+    resolved_at = now()
+  where id = v_round.id;
+end;
+$$;
+
+create or replace function public.create_bjd_round(
+  room_id_input uuid,
+  round_number_input integer
+)
+returns uuid
+language plpgsql
+set search_path = public, extensions
+as $$
+declare
+  v_player_ids uuid[];
+  v_deck text[];
+  v_round public.bjd_rounds;
+  v_cards text[];
+  v_idx integer;
+begin
+  select array_agg(id order by joined_at asc)
+  into v_player_ids
+  from public.room_players
+  where room_id = room_id_input;
+
+  if coalesce(array_length(v_player_ids, 1), 0) <> 2 then
+    raise exception 'Se necesitan dos jugadores para repartir.';
+  end if;
+
+  v_deck := public.build_bj_shuffled_deck();
+
+  insert into public.bjd_rounds (
+    room_id,
+    round_number,
+    status,
+    deck,
+    next_card_index
+  )
+  values (
+    room_id_input,
+    round_number_input,
+    'pending',
+    v_deck,
+    5
+  )
+  returning * into v_round;
+
+  for v_idx in 1..2 loop
+    v_cards := array[v_deck[v_idx], v_deck[v_idx + 2]];
+
+    insert into public.bjd_player_hands (
+      room_id,
+      round_id,
+      player_id,
+      cards,
+      turn_status
+    )
+    values (
+      room_id_input,
+      v_round.id,
+      v_player_ids[v_idx],
+      v_cards,
+      case
+        when public.bj_is_blackjack(v_cards) then 'blackjack'
+        else 'active'
+      end
+    );
+  end loop;
+
+  perform public.resolve_bjd_round(v_round.id);
+
+  return v_round.id;
+end;
+$$;
+
+create or replace function public.create_bjd_room(host_nickname text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_host public.room_players;
+  v_secret text := encode(gen_random_bytes(16), 'hex');
+begin
+  if host_nickname is null or btrim(host_nickname) = '' then
+    raise exception 'El apodo no puede estar vacio.';
+  end if;
+
+  insert into public.game_rooms (code, game_slug)
+  values (public.generate_room_code(), 'bjd')
+  returning * into v_room;
+
+  insert into public.room_players (room_id, nickname, is_host, player_secret)
+  values (v_room.id, left(btrim(host_nickname), 24), true, v_secret)
+  returning * into v_host;
+
+  update public.game_rooms
+  set host_player_id = v_host.id
+  where id = v_room.id;
+
+  return jsonb_build_object(
+    'nickname', v_host.nickname,
+    'playerId', v_host.id,
+    'playerSecret', v_secret,
+    'roomCode', v_room.code,
+    'roomId', v_room.id
+  );
+end;
+$$;
+
+create or replace function public.join_bjd_room(room_code_input text, player_nickname text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_player public.room_players;
+  v_secret text := encode(gen_random_bytes(16), 'hex');
+  v_players_count integer;
+begin
+  if player_nickname is null or btrim(player_nickname) = '' then
+    raise exception 'El apodo no puede estar vacio.';
+  end if;
+
+  select *
+  into v_room
+  from public.game_rooms
+  where code = upper(btrim(room_code_input))
+    and game_slug = 'bjd'
+  limit 1;
+
+  if not found then
+    raise exception 'La sala no existe.';
+  end if;
+
+  select count(*)
+  into v_players_count
+  from public.room_players
+  where room_id = v_room.id;
+
+  if v_players_count >= 2 then
+    raise exception 'La sala ya esta completa.';
+  end if;
+
+  insert into public.room_players (room_id, nickname, is_host, player_secret)
+  values (v_room.id, left(btrim(player_nickname), 24), false, v_secret)
+  returning * into v_player;
+
+  update public.game_rooms
+  set status = 'playing'
+  where id = v_room.id;
+
+  perform public.create_bjd_round(v_room.id, 1);
+
+  return jsonb_build_object(
+    'nickname', v_player.nickname,
+    'playerId', v_player.id,
+    'playerSecret', v_secret,
+    'roomCode', v_room.code,
+    'roomId', v_room.id
+  );
+end;
+$$;
+
+create or replace function public.submit_bjd_action(
+  room_code_input text,
+  player_id_input uuid,
+  player_secret_input text,
+  action_input text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_player public.room_players;
+  v_round public.bjd_rounds;
+  v_hand public.bjd_player_hands;
+  v_cards text[];
+  v_total integer;
+begin
+  if action_input not in ('hit', 'stand') then
+    raise exception 'Accion invalida.';
+  end if;
+
+  select *
+  into v_room
+  from public.game_rooms
+  where code = upper(btrim(room_code_input))
+    and game_slug = 'bjd'
+  limit 1;
+
+  if not found then
+    raise exception 'La sala no existe.';
+  end if;
+
+  select *
+  into v_player
+  from public.room_players
+  where id = player_id_input
+    and room_id = v_room.id
+    and player_secret = player_secret_input
+  limit 1;
+
+  if not found then
+    raise exception 'La sesion del jugador no es valida.';
+  end if;
+
+  select *
+  into v_round
+  from public.bjd_rounds
+  where room_id = v_room.id
+  order by round_number desc
+  limit 1
+  for update;
+
+  if not found then
+    raise exception 'La ronda no existe.';
+  end if;
+
+  if v_round.status <> 'pending' then
+    raise exception 'La ronda no acepta acciones ahora mismo.';
+  end if;
+
+  select *
+  into v_hand
+  from public.bjd_player_hands
+  where round_id = v_round.id
+    and player_id = v_player.id
+  limit 1
+  for update;
+
+  if not found then
+    raise exception 'La mano del jugador no existe.';
+  end if;
+
+  if v_hand.turn_status <> 'active' then
+    raise exception 'Tu mano ya esta cerrada.';
+  end if;
+
+  if action_input = 'stand' then
+    update public.bjd_player_hands
+    set turn_status = 'stood'
+    where id = v_hand.id;
+
+    perform public.resolve_bjd_round(v_round.id);
+
+    return jsonb_build_object('ok', true);
+  end if;
+
+  if v_round.next_card_index > coalesce(array_length(v_round.deck, 1), 0) then
+    raise exception 'No quedan cartas en el mazo.';
+  end if;
+
+  v_cards := array_append(v_hand.cards, v_round.deck[v_round.next_card_index]);
+
+  update public.bjd_rounds
+  set next_card_index = v_round.next_card_index + 1
+  where id = v_round.id
+  returning * into v_round;
+
+  v_total := public.bj_hand_total(v_cards);
+
+  update public.bjd_player_hands
+  set
+    cards = v_cards,
+    turn_status = case
+      when v_total > 21 then 'bust'
+      when v_total = 21 then 'stood'
+      else 'active'
+    end
+  where id = v_hand.id;
+
+  perform public.resolve_bjd_round(v_round.id);
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+create or replace function public.start_next_bjd_round(
+  room_code_input text,
+  player_id_input uuid,
+  player_secret_input text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_player public.room_players;
+  v_round public.bjd_rounds;
+  v_players_count integer;
+  v_next_round_id uuid;
+begin
+  select *
+  into v_room
+  from public.game_rooms
+  where code = upper(btrim(room_code_input))
+    and game_slug = 'bjd'
+  limit 1;
+
+  if not found then
+    raise exception 'La sala no existe.';
+  end if;
+
+  select *
+  into v_player
+  from public.room_players
+  where id = player_id_input
+    and room_id = v_room.id
+    and player_secret = player_secret_input
+  limit 1;
+
+  if not found then
+    raise exception 'La sesion del jugador no es valida.';
+  end if;
+
+  select count(*)
+  into v_players_count
+  from public.room_players
+  where room_id = v_room.id;
+
+  if v_players_count < 2 then
+    raise exception 'Se necesitan dos jugadores para empezar.';
+  end if;
+
+  select *
+  into v_round
+  from public.bjd_rounds
+  where room_id = v_room.id
+  order by round_number desc
+  limit 1;
+
+  if not found then
+    v_next_round_id := public.create_bjd_round(v_room.id, 1);
+    return jsonb_build_object('roundId', v_next_round_id, 'roundNumber', 1);
+  end if;
+
+  if v_round.status <> 'revealed' then
+    return jsonb_build_object('roundId', v_round.id, 'roundNumber', v_round.round_number);
+  end if;
+
+  v_next_round_id := public.create_bjd_round(v_room.id, v_round.round_number + 1);
+
+  return jsonb_build_object(
+    'roundId', v_next_round_id,
+    'roundNumber', v_round.round_number + 1
+  );
+end;
+$$;
+
+create or replace function public.get_bjd_room_snapshot(
+  room_code_input text,
+  player_id_input uuid,
+  player_secret_input text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_player public.room_players;
+  v_round public.bjd_rounds;
+begin
+  select *
+  into v_room
+  from public.game_rooms
+  where code = upper(btrim(room_code_input))
+    and game_slug = 'bjd'
+  limit 1;
+
+  if not found then
+    raise exception 'La sala no existe.';
+  end if;
+
+  select *
+  into v_player
+  from public.room_players
+  where id = player_id_input
+    and room_id = v_room.id
+    and player_secret = player_secret_input
+  limit 1;
+
+  if not found then
+    raise exception 'La sesion del jugador no es valida.';
+  end if;
+
+  select *
+  into v_round
+  from public.bjd_rounds
+  where room_id = v_room.id
+  order by round_number desc
+  limit 1;
+
+  return jsonb_build_object(
+    'roomId', v_room.id,
+    'roomCode', v_room.code,
+    'gameSlug', v_room.game_slug,
+    'roomStatus', v_room.status,
+    'createdAt', v_room.created_at,
+    'playerCount', (
+      select count(*)
+      from public.room_players
+      where room_id = v_room.id
+    ),
+    'players', coalesce((
+      select jsonb_agg(
+        jsonb_build_object(
+          'id', p.id,
+          'nickname', p.nickname,
+          'isHost', p.is_host,
+          'joinedAt', p.joined_at,
+          'score', (
+            select count(*)
+            from public.bjd_player_hands dh
+            join public.bjd_rounds dr on dr.id = dh.round_id
+            where dr.room_id = v_room.id
+              and dh.player_id = p.id
+              and dh.outcome = 'win'
+          )
+        )
+        order by p.joined_at asc
+      )
+      from public.room_players p
+      where p.room_id = v_room.id
+    ), '[]'::jsonb),
+    'currentRound', case
+      when v_round.id is null then null
+      else jsonb_build_object(
+        'id', v_round.id,
+        'roundNumber', v_round.round_number,
+        'status', v_round.status,
+        'activePlayerCount', (
+          select count(*)
+          from public.bjd_player_hands
+          where round_id = v_round.id
+            and turn_status = 'active'
+        ),
+        'playerHands', coalesce((
+          select jsonb_agg(
+            jsonb_build_object(
+              'playerId', p.id,
+              'nickname', p.nickname,
+              'isSelf', p.id = v_player.id,
+              'revealed', p.id = v_player.id or v_round.status = 'revealed',
+              'cardCount', coalesce(array_length(h.cards, 1), 0),
+              'cards', case
+                when p.id = v_player.id or v_round.status = 'revealed' then h.cards
+                else array(
+                  select '??'::text
+                  from generate_series(1, coalesce(array_length(h.cards, 1), 0))
+                )
+              end,
+              'total', case
+                when p.id = v_player.id or v_round.status = 'revealed' then public.bj_hand_total(h.cards)
+                else null
+              end,
+              'turnStatus', h.turn_status,
+              'outcome', h.outcome
+            )
+            order by case when p.id = v_player.id then 0 else 1 end, p.joined_at asc
+          )
+          from public.bjd_player_hands h
+          join public.room_players p on p.id = h.player_id
+          where h.round_id = v_round.id
+        ), '[]'::jsonb)
+      )
+    end
+  );
+end;
+$$;
+
 alter table public.game_rooms enable row level security;
 alter table public.room_players enable row level security;
 alter table public.rps_rounds enable row level security;
@@ -1718,6 +2332,8 @@ alter table public.rps_moves enable row level security;
 alter table public.ttt_rounds enable row level security;
 alter table public.bj_rounds enable row level security;
 alter table public.bj_player_hands enable row level security;
+alter table public.bjd_rounds enable row level security;
+alter table public.bjd_player_hands enable row level security;
 
 drop policy if exists "public read rooms" on public.game_rooms;
 create policy "public read rooms"
@@ -1755,6 +2371,9 @@ on public.bj_player_hands
 for select
 using (true);
 
+drop policy if exists "public read bjd rounds" on public.bjd_rounds;
+drop policy if exists "public read bjd hands" on public.bjd_player_hands;
+
 grant select on public.game_rooms to anon, authenticated;
 grant select on public.room_players to anon, authenticated;
 grant select on public.rps_rounds to anon, authenticated;
@@ -1762,6 +2381,8 @@ grant select on public.ttt_rounds to anon, authenticated;
 grant select on public.bj_rounds to anon, authenticated;
 grant select on public.bj_player_hands to anon, authenticated;
 revoke all on public.rps_moves from anon, authenticated;
+revoke all on public.bjd_rounds from anon, authenticated;
+revoke all on public.bjd_player_hands from anon, authenticated;
 
 revoke all on function public.create_rps_room(text) from public;
 revoke all on function public.join_rps_room(text, text) from public;
@@ -1778,6 +2399,11 @@ revoke all on function public.join_bj_room(text, text) from public;
 revoke all on function public.submit_bj_action(text, uuid, text, text) from public;
 revoke all on function public.start_next_bj_round(text, uuid, text) from public;
 revoke all on function public.get_bj_room_snapshot(text) from public;
+revoke all on function public.create_bjd_room(text) from public;
+revoke all on function public.join_bjd_room(text, text) from public;
+revoke all on function public.submit_bjd_action(text, uuid, text, text) from public;
+revoke all on function public.start_next_bjd_round(text, uuid, text) from public;
+revoke all on function public.get_bjd_room_snapshot(text, uuid, text) from public;
 
 grant execute on function public.create_rps_room(text) to anon, authenticated;
 grant execute on function public.join_rps_room(text, text) to anon, authenticated;
@@ -1794,6 +2420,11 @@ grant execute on function public.join_bj_room(text, text) to anon, authenticated
 grant execute on function public.submit_bj_action(text, uuid, text, text) to anon, authenticated;
 grant execute on function public.start_next_bj_round(text, uuid, text) to anon, authenticated;
 grant execute on function public.get_bj_room_snapshot(text) to anon, authenticated;
+grant execute on function public.create_bjd_room(text) to anon, authenticated;
+grant execute on function public.join_bjd_room(text, text) to anon, authenticated;
+grant execute on function public.submit_bjd_action(text, uuid, text, text) to anon, authenticated;
+grant execute on function public.start_next_bjd_round(text, uuid, text) to anon, authenticated;
+grant execute on function public.get_bjd_room_snapshot(text, uuid, text) to anon, authenticated;
 
 do $$
 begin

@@ -36,6 +36,15 @@ export const gameCards: GameCard[] = [
     status: "live",
   },
   {
+    slug: "bjd",
+    title: "Blackjack duelo",
+    eyebrow: "Listo para jugar",
+    description:
+      "Un cara a cara con manos ocultas hasta el reveal final.",
+    href: "/games/bjd/",
+    status: "live",
+  },
+  {
     slug: "guess",
     title: "Adivina el numero",
     eyebrow: "Proximamente",
