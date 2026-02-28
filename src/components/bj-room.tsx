@@ -50,15 +50,34 @@ function buildShareUrl(roomCode: string) {
   return url.toString();
 }
 
-function cardLabel(card: string) {
+function parseCard(card: string) {
   if (card === "??") {
-    return "??";
+    return {
+      isHidden: true,
+      rank: "?",
+      suitKey: "?",
+      suitLabel: "?",
+    } as const;
   }
 
   const rank = card.slice(0, -1);
-  const suit = card.slice(-1);
+  const suitKey = card.slice(-1);
 
-  return `${rank}${suit}`;
+  const suitLabel =
+    suitKey === "H"
+      ? "♥"
+      : suitKey === "D"
+        ? "♦"
+        : suitKey === "C"
+          ? "♣"
+          : "♠";
+
+  return {
+    isHidden: false,
+    rank,
+    suitKey,
+    suitLabel,
+  } as const;
 }
 
 function resultSummary(round: BjCurrentRound | null) {
@@ -72,16 +91,55 @@ function resultSummary(round: BjCurrentRound | null) {
   return `${wins}/${totalPlayers}`;
 }
 
+function PlayingCard({ card }: { card: string }) {
+  const parsed = parseCard(card);
+  const isRed = parsed.suitKey === "H" || parsed.suitKey === "D";
+
+  if (parsed.isHidden) {
+    return (
+      <div className="relative flex h-24 w-16 items-center justify-center overflow-hidden rounded-[22px] border border-white/8 bg-[#0b0c0f] shadow-[0_12px_24px_rgba(0,0,0,0.24)] sm:h-28 sm:w-[4.5rem]">
+        <div className="absolute inset-[1px] rounded-[21px] border border-white/5" />
+        <div className="text-lg font-semibold tracking-[0.18em] text-stone-600 sm:text-xl">
+          ??
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative flex h-24 w-16 flex-col justify-between rounded-[22px] border border-white/8 bg-[#111215] p-3 text-stone-100 shadow-[0_12px_24px_rgba(0,0,0,0.24)] sm:h-28 sm:w-[4.5rem]">
+      <div className="absolute inset-[1px] rounded-[21px] border border-white/5" />
+      <div className="relative flex items-start justify-between gap-2">
+        <p className="text-lg font-semibold leading-none text-stone-100 sm:text-xl">
+          {parsed.rank}
+        </p>
+        <span
+          className={`text-base leading-none sm:text-lg ${
+            isRed ? "text-red-500/80" : "text-stone-400"
+          }`}
+        >
+          {parsed.suitLabel}
+        </span>
+      </div>
+
+      <div className="relative flex items-end justify-end">
+        <span
+          className={`text-2xl leading-none sm:text-[2rem] ${
+            isRed ? "text-red-500/80" : "text-stone-400"
+          }`}
+        >
+          {parsed.suitLabel}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function HandCards({ cards }: { cards: string[] }) {
   return (
     <div className="mt-4 flex flex-wrap gap-2">
       {cards.map((card, index) => (
-        <div
-          key={`${card}-${index}`}
-          className="glass-tile flex h-14 min-w-12 items-center justify-center rounded-2xl px-3 text-sm font-semibold text-stone-100"
-        >
-          {cardLabel(card)}
-        </div>
+        <PlayingCard card={card} key={`${card}-${index}`} />
       ))}
     </div>
   );
