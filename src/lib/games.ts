@@ -45,6 +45,15 @@ export const gameCards: GameCard[] = [
     status: "live",
   },
   {
+    slug: "bb",
+    title: "Bluff Battle",
+    eyebrow: "Listo para jugar",
+    description:
+      "Un party mode de bluff con colores, desafios y tres vidas por jugador.",
+    href: "/games/bb/",
+    status: "live",
+  },
+  {
     slug: "guess",
     title: "Adivina el numero",
     eyebrow: "Proximamente",

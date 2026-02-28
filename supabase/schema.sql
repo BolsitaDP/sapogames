@@ -13,7 +13,7 @@ create table if not exists public.game_rooms (
 alter table public.game_rooms drop constraint if exists game_rooms_game_slug_check;
 alter table public.game_rooms
   add constraint game_rooms_game_slug_check
-  check (game_slug in ('rps', 'ttt', 'bj', 'bjd'));
+  check (game_slug in ('rps', 'ttt', 'bj', 'bjd', 'bb'));
 
 create table if not exists public.room_players (
   id uuid primary key default gen_random_uuid(),
@@ -110,6 +110,48 @@ create table if not exists public.bjd_player_hands (
   unique (round_id, player_id)
 );
 
+create table if not exists public.bb_player_states (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.game_rooms(id) on delete cascade,
+  player_id uuid not null references public.room_players(id) on delete cascade,
+  lives_remaining integer not null default 3 check (lives_remaining between 0 and 3),
+  is_eliminated boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (room_id, player_id)
+);
+
+create table if not exists public.bb_rounds (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.game_rooms(id) on delete cascade,
+  round_number integer not null,
+  status text not null default 'pending' check (status in ('pending', 'revealed')),
+  target_color text not null check (target_color in ('red', 'blue', 'green', 'yellow')),
+  starting_player_id uuid not null references public.room_players(id) on delete cascade,
+  current_player_id uuid references public.room_players(id) on delete set null,
+  last_play_player_id uuid references public.room_players(id) on delete set null,
+  last_play_count integer not null default 0,
+  last_play_cards text[] not null default array[]::text[],
+  pile_count integer not null default 0,
+  challenger_player_id uuid references public.room_players(id) on delete set null,
+  loser_player_id uuid references public.room_players(id) on delete set null,
+  challenge_result text check (challenge_result in ('caught', 'failed', 'escaped')),
+  winner_player_id uuid references public.room_players(id) on delete set null,
+  created_at timestamptz not null default now(),
+  resolved_at timestamptz
+);
+
+create table if not exists public.bb_player_hands (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.game_rooms(id) on delete cascade,
+  round_id uuid not null references public.bb_rounds(id) on delete cascade,
+  player_id uuid not null references public.room_players(id) on delete cascade,
+  cards text[] not null default array[]::text[],
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (round_id, player_id)
+);
+
 do $$
 begin
   if not exists (
@@ -121,6 +163,13 @@ begin
       add constraint rps_rounds_room_round_unique unique (room_id, round_number);
   end if;
 end $$;
+
+alter table if exists public.bb_rounds
+  drop constraint if exists bb_rounds_challenge_result_check;
+
+alter table if exists public.bb_rounds
+  add constraint bb_rounds_challenge_result_check
+  check (challenge_result in ('caught', 'failed', 'escaped'));
 
 do $$
 begin
@@ -155,6 +204,18 @@ begin
   ) then
     alter table public.bjd_rounds
       add constraint bjd_rounds_room_round_unique unique (room_id, round_number);
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'bb_rounds_room_round_unique'
+  ) then
+    alter table public.bb_rounds
+      add constraint bb_rounds_room_round_unique unique (room_id, round_number);
   end if;
 end $$;
 
@@ -198,6 +259,18 @@ execute function public.touch_updated_at();
 drop trigger if exists trg_bjd_player_hands_updated_at on public.bjd_player_hands;
 create trigger trg_bjd_player_hands_updated_at
 before update on public.bjd_player_hands
+for each row
+execute function public.touch_updated_at();
+
+drop trigger if exists trg_bb_player_states_updated_at on public.bb_player_states;
+create trigger trg_bb_player_states_updated_at
+before update on public.bb_player_states
+for each row
+execute function public.touch_updated_at();
+
+drop trigger if exists trg_bb_player_hands_updated_at on public.bb_player_hands;
+create trigger trg_bb_player_hands_updated_at
+before update on public.bb_player_hands
 for each row
 execute function public.touch_updated_at();
 
@@ -2325,6 +2398,912 @@ begin
 end;
 $$;
 
+create or replace function public.bb_build_deck()
+returns text[]
+language sql
+as $$
+  with colors as (
+    select color
+    from unnest(array['red', 'blue', 'green', 'yellow']) as color
+    cross join generate_series(1, 8)
+  )
+  select coalesce(array_agg(color order by random()), array[]::text[])
+  from colors;
+$$;
+
+create or replace function public.bb_next_active_player(
+  room_id_input uuid,
+  current_player_id_input uuid
+)
+returns uuid
+language plpgsql
+set search_path = public, extensions
+as $$
+declare
+  v_player_ids uuid[];
+  v_index integer;
+  v_total integer;
+begin
+  select array_agg(p.id order by p.joined_at asc)
+  into v_player_ids
+  from public.room_players p
+  join public.bb_player_states s
+    on s.player_id = p.id
+   and s.room_id = p.room_id
+  where p.room_id = room_id_input
+    and s.is_eliminated = false;
+
+  v_total := coalesce(array_length(v_player_ids, 1), 0);
+
+  if v_total = 0 then
+    return null;
+  end if;
+
+  if current_player_id_input is null then
+    return v_player_ids[1];
+  end if;
+
+  for v_index in 1..v_total loop
+    if v_player_ids[v_index] = current_player_id_input then
+      if v_index = v_total then
+        return v_player_ids[1];
+      end if;
+
+      return v_player_ids[v_index + 1];
+    end if;
+  end loop;
+
+  return v_player_ids[1];
+end;
+$$;
+
+create or replace function public.create_bb_round(
+  room_id_input uuid,
+  round_number_input integer,
+  starting_player_id_input uuid
+)
+returns uuid
+language plpgsql
+set search_path = public, extensions
+as $$
+declare
+  v_player_ids uuid[];
+  v_player_count integer;
+  v_deck text[];
+  v_round public.bb_rounds;
+  v_target_color text;
+  v_player_index integer;
+  v_card_index integer;
+  v_cards text[];
+begin
+  select array_agg(p.id order by p.joined_at asc)
+  into v_player_ids
+  from public.room_players p
+  join public.bb_player_states s
+    on s.player_id = p.id
+   and s.room_id = p.room_id
+  where p.room_id = room_id_input
+    and s.is_eliminated = false;
+
+  v_player_count := coalesce(array_length(v_player_ids, 1), 0);
+
+  if v_player_count < 2 then
+    raise exception 'Se necesitan al menos dos jugadores vivos.';
+  end if;
+
+  if not (starting_player_id_input = any(v_player_ids)) then
+    raise exception 'El jugador inicial no pertenece a la ronda.';
+  end if;
+
+  v_deck := public.bb_build_deck();
+  v_target_color := (array['red', 'blue', 'green', 'yellow'])[1 + floor(random() * 4)::integer];
+
+  insert into public.bb_rounds (
+    room_id,
+    round_number,
+    status,
+    target_color,
+    starting_player_id,
+    current_player_id
+  )
+  values (
+    room_id_input,
+    round_number_input,
+    'pending',
+    v_target_color,
+    starting_player_id_input,
+    starting_player_id_input
+  )
+  returning * into v_round;
+
+  for v_player_index in 1..v_player_count loop
+    v_cards := array[]::text[];
+
+    for v_card_index in 0..4 loop
+      v_cards := array_append(
+        v_cards,
+        v_deck[v_player_index + (v_card_index * v_player_count)]
+      );
+    end loop;
+
+    insert into public.bb_player_hands (
+      room_id,
+      round_id,
+      player_id,
+      cards
+    )
+    values (
+      room_id_input,
+      v_round.id,
+      v_player_ids[v_player_index],
+      v_cards
+    );
+  end loop;
+
+  return v_round.id;
+end;
+$$;
+
+create or replace function public.create_bb_room(host_nickname text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_host public.room_players;
+  v_secret text := encode(gen_random_bytes(16), 'hex');
+begin
+  if host_nickname is null or btrim(host_nickname) = '' then
+    raise exception 'El apodo no puede estar vacio.';
+  end if;
+
+  insert into public.game_rooms (code, game_slug)
+  values (public.generate_room_code(), 'bb')
+  returning * into v_room;
+
+  insert into public.room_players (room_id, nickname, is_host, player_secret)
+  values (v_room.id, left(btrim(host_nickname), 24), true, v_secret)
+  returning * into v_host;
+
+  update public.game_rooms
+  set host_player_id = v_host.id
+  where id = v_room.id;
+
+  insert into public.bb_player_states (room_id, player_id, lives_remaining)
+  values (v_room.id, v_host.id, 3);
+
+  return jsonb_build_object(
+    'nickname', v_host.nickname,
+    'playerId', v_host.id,
+    'playerSecret', v_secret,
+    'roomCode', v_room.code,
+    'roomId', v_room.id
+  );
+end;
+$$;
+
+create or replace function public.join_bb_room(room_code_input text, player_nickname text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_player public.room_players;
+  v_secret text := encode(gen_random_bytes(16), 'hex');
+  v_players_count integer;
+begin
+  if player_nickname is null or btrim(player_nickname) = '' then
+    raise exception 'El apodo no puede estar vacio.';
+  end if;
+
+  select *
+  into v_room
+  from public.game_rooms
+  where code = upper(btrim(room_code_input))
+    and game_slug = 'bb'
+  limit 1;
+
+  if not found then
+    raise exception 'La sala no existe.';
+  end if;
+
+  if v_room.status <> 'waiting' then
+    raise exception 'La partida ya empezo.';
+  end if;
+
+  select count(*)
+  into v_players_count
+  from public.room_players
+  where room_id = v_room.id;
+
+  if v_players_count >= 4 then
+    raise exception 'La sala ya esta completa.';
+  end if;
+
+  insert into public.room_players (room_id, nickname, is_host, player_secret)
+  values (v_room.id, left(btrim(player_nickname), 24), false, v_secret)
+  returning * into v_player;
+
+  insert into public.bb_player_states (room_id, player_id, lives_remaining)
+  values (v_room.id, v_player.id, 3);
+
+  return jsonb_build_object(
+    'nickname', v_player.nickname,
+    'playerId', v_player.id,
+    'playerSecret', v_secret,
+    'roomCode', v_room.code,
+    'roomId', v_room.id
+  );
+end;
+$$;
+
+create or replace function public.start_next_bb_round(
+  room_code_input text,
+  player_id_input uuid,
+  player_secret_input text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_player public.room_players;
+  v_round public.bb_rounds;
+  v_next_round_id uuid;
+  v_alive_count integer;
+  v_all_count integer;
+  v_next_starter uuid;
+begin
+  select *
+  into v_room
+  from public.game_rooms
+  where code = upper(btrim(room_code_input))
+    and game_slug = 'bb'
+  limit 1;
+
+  if not found then
+    raise exception 'La sala no existe.';
+  end if;
+
+  select *
+  into v_player
+  from public.room_players
+  where id = player_id_input
+    and room_id = v_room.id
+    and player_secret = player_secret_input
+  limit 1;
+
+  if not found then
+    raise exception 'La sesion del jugador no es valida.';
+  end if;
+
+  select count(*)
+  into v_all_count
+  from public.room_players
+  where room_id = v_room.id;
+
+  select count(*)
+  into v_alive_count
+  from public.bb_player_states
+  where room_id = v_room.id
+    and is_eliminated = false;
+
+  if v_alive_count = 0 then
+    raise exception 'No hay jugadores vivos.';
+  end if;
+
+  select *
+  into v_round
+  from public.bb_rounds
+  where room_id = v_room.id
+  order by round_number desc
+  limit 1;
+
+  if not found then
+    if v_all_count < 2 then
+      raise exception 'Se necesitan al menos 2 jugadores para empezar.';
+    end if;
+
+    v_next_round_id := public.create_bb_round(v_room.id, 1, v_room.host_player_id);
+
+    update public.game_rooms
+    set status = 'playing'
+    where id = v_room.id;
+
+    return jsonb_build_object(
+      'roundId', v_next_round_id,
+      'roundNumber', 1
+    );
+  end if;
+
+  if v_round.status <> 'revealed' then
+    return jsonb_build_object(
+      'roundId', v_round.id,
+      'roundNumber', v_round.round_number
+    );
+  end if;
+
+  if v_alive_count = 1 then
+    update public.game_rooms
+    set status = 'finished'
+    where id = v_room.id;
+
+    return jsonb_build_object(
+      'roundId', v_round.id,
+      'roundNumber', v_round.round_number
+    );
+  end if;
+
+  v_next_starter := public.bb_next_active_player(v_room.id, v_round.starting_player_id);
+  v_next_round_id := public.create_bb_round(v_room.id, v_round.round_number + 1, v_next_starter);
+
+  update public.game_rooms
+  set status = 'playing'
+  where id = v_room.id;
+
+  return jsonb_build_object(
+    'roundId', v_next_round_id,
+    'roundNumber', v_round.round_number + 1
+  );
+end;
+$$;
+
+create or replace function public.resolve_bb_challenge(
+  room_id_input uuid,
+  round_id_input uuid,
+  challenger_player_id_input uuid
+)
+returns jsonb
+language plpgsql
+set search_path = public, extensions
+as $$
+declare
+  v_round public.bb_rounds;
+  v_loser_player_id uuid;
+  v_is_truthful boolean;
+  v_alive_count integer;
+  v_winner_player_id uuid;
+begin
+  select *
+  into v_round
+  from public.bb_rounds
+  where id = round_id_input
+    and room_id = room_id_input
+  limit 1
+  for update;
+
+  if not found then
+    raise exception 'La ronda no existe.';
+  end if;
+
+  if v_round.status <> 'pending' then
+    raise exception 'La ronda actual ya esta cerrada.';
+  end if;
+
+  if v_round.last_play_player_id is null or v_round.last_play_count = 0 then
+    raise exception 'Todavia no hay una jugada para desafiar.';
+  end if;
+
+  select not exists (
+    select 1
+    from unnest(v_round.last_play_cards) as color
+    where color <> v_round.target_color
+  )
+  into v_is_truthful;
+
+  if v_is_truthful then
+    v_loser_player_id := challenger_player_id_input;
+  else
+    v_loser_player_id := v_round.last_play_player_id;
+  end if;
+
+  update public.bb_player_states
+  set
+    lives_remaining = greatest(lives_remaining - 1, 0),
+    is_eliminated = lives_remaining - 1 <= 0
+  where room_id = room_id_input
+    and player_id = v_loser_player_id;
+
+  select count(*)
+  into v_alive_count
+  from public.bb_player_states
+  where room_id = room_id_input
+    and is_eliminated = false;
+
+  if v_alive_count = 1 then
+    select player_id
+    into v_winner_player_id
+    from public.bb_player_states
+    where room_id = room_id_input
+      and is_eliminated = false
+    limit 1;
+
+    update public.game_rooms
+    set status = 'finished'
+    where id = room_id_input;
+  else
+    v_winner_player_id := null;
+
+    update public.game_rooms
+    set status = 'playing'
+    where id = room_id_input;
+  end if;
+
+  update public.bb_rounds
+  set
+    status = 'revealed',
+    challenger_player_id = challenger_player_id_input,
+    loser_player_id = v_loser_player_id,
+    challenge_result = case
+      when v_is_truthful then 'failed'
+      else 'caught'
+    end,
+    winner_player_id = v_winner_player_id,
+    resolved_at = now()
+  where id = v_round.id;
+
+  return jsonb_build_object(
+    'ok', true
+  );
+end;
+$$;
+
+create or replace function public.resolve_bb_empty_hand_win(
+  room_id_input uuid,
+  round_id_input uuid,
+  winner_player_id_input uuid
+)
+returns jsonb
+language plpgsql
+set search_path = public, extensions
+as $$
+declare
+  v_round public.bb_rounds;
+  v_alive_count integer;
+  v_match_winner_player_id uuid;
+begin
+  select *
+  into v_round
+  from public.bb_rounds
+  where id = round_id_input
+    and room_id = room_id_input
+  limit 1
+  for update;
+
+  if not found then
+    raise exception 'La ronda no existe.';
+  end if;
+
+  if v_round.status <> 'pending' then
+    raise exception 'La ronda actual ya esta cerrada.';
+  end if;
+
+  update public.bb_player_states
+  set
+    lives_remaining = greatest(lives_remaining - 1, 0),
+    is_eliminated = lives_remaining - 1 <= 0
+  where room_id = room_id_input
+    and player_id <> winner_player_id_input
+    and is_eliminated = false;
+
+  select count(*)
+  into v_alive_count
+  from public.bb_player_states
+  where room_id = room_id_input
+    and is_eliminated = false;
+
+  if v_alive_count = 1 then
+    select player_id
+    into v_match_winner_player_id
+    from public.bb_player_states
+    where room_id = room_id_input
+      and is_eliminated = false
+    limit 1;
+
+    update public.game_rooms
+    set status = 'finished'
+    where id = room_id_input;
+  else
+    v_match_winner_player_id := winner_player_id_input;
+
+    update public.game_rooms
+    set status = 'playing'
+    where id = room_id_input;
+  end if;
+
+  update public.bb_rounds
+  set
+    status = 'revealed',
+    loser_player_id = null,
+    challenge_result = 'escaped',
+    winner_player_id = v_match_winner_player_id,
+    resolved_at = now()
+  where id = v_round.id;
+
+  return jsonb_build_object(
+    'ok', true
+  );
+end;
+$$;
+
+create or replace function public.play_bb_cards(
+  room_code_input text,
+  player_id_input uuid,
+  player_secret_input text,
+  card_indexes_input integer[]
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_player public.room_players;
+  v_round public.bb_rounds;
+  v_hand public.bb_player_hands;
+  v_selected_cards text[] := array[]::text[];
+  v_remaining_cards text[] := array[]::text[];
+  v_index integer;
+  v_card_count integer;
+  v_next_player_id uuid;
+  v_last_player_card_count integer;
+  v_next_player_card_count integer;
+begin
+  if card_indexes_input is null or coalesce(array_length(card_indexes_input, 1), 0) = 0 then
+    raise exception 'Selecciona al menos una carta.';
+  end if;
+
+  select *
+  into v_room
+  from public.game_rooms
+  where code = upper(btrim(room_code_input))
+    and game_slug = 'bb'
+  limit 1;
+
+  if not found then
+    raise exception 'La sala no existe.';
+  end if;
+
+  select *
+  into v_player
+  from public.room_players
+  where id = player_id_input
+    and room_id = v_room.id
+    and player_secret = player_secret_input
+  limit 1;
+
+  if not found then
+    raise exception 'La sesion del jugador no es valida.';
+  end if;
+
+  select *
+  into v_round
+  from public.bb_rounds
+  where room_id = v_room.id
+  order by round_number desc
+  limit 1
+  for update;
+
+  if not found then
+    raise exception 'La ronda no existe.';
+  end if;
+
+  if v_round.status <> 'pending' then
+    raise exception 'La ronda actual ya esta cerrada.';
+  end if;
+
+  if v_round.current_player_id <> v_player.id then
+    raise exception 'No es tu turno.';
+  end if;
+
+  if v_round.last_play_player_id is not null and v_round.last_play_player_id <> v_player.id then
+    select coalesce(array_length(cards, 1), 0)
+    into v_last_player_card_count
+    from public.bb_player_hands
+    where round_id = v_round.id
+      and player_id = v_round.last_play_player_id
+    limit 1;
+
+    if coalesce(v_last_player_card_count, 0) = 0 then
+      return public.resolve_bb_empty_hand_win(
+        v_room.id,
+        v_round.id,
+        v_round.last_play_player_id
+      );
+    end if;
+  end if;
+
+  select *
+  into v_hand
+  from public.bb_player_hands
+  where round_id = v_round.id
+    and player_id = v_player.id
+  limit 1
+  for update;
+
+  if not found then
+    raise exception 'La mano del jugador no existe.';
+  end if;
+
+  v_card_count := coalesce(array_length(v_hand.cards, 1), 0);
+
+  for v_index in 1..v_card_count loop
+    if (v_index - 1) = any(card_indexes_input) then
+      v_selected_cards := array_append(v_selected_cards, v_hand.cards[v_index]);
+    else
+      v_remaining_cards := array_append(v_remaining_cards, v_hand.cards[v_index]);
+    end if;
+  end loop;
+
+  if coalesce(array_length(v_selected_cards, 1), 0) <> coalesce(array_length(card_indexes_input, 1), 0) then
+    raise exception 'La seleccion de cartas no es valida.';
+  end if;
+
+  update public.bb_player_hands
+  set cards = v_remaining_cards
+  where id = v_hand.id;
+
+  v_next_player_id := public.bb_next_active_player(v_room.id, v_player.id);
+
+  update public.bb_rounds
+  set
+    current_player_id = v_next_player_id,
+    last_play_player_id = v_player.id,
+    last_play_count = coalesce(array_length(v_selected_cards, 1), 0),
+    last_play_cards = v_selected_cards,
+    pile_count = v_round.pile_count + coalesce(array_length(v_selected_cards, 1), 0),
+    challenger_player_id = null,
+    loser_player_id = null,
+    challenge_result = null,
+    winner_player_id = null,
+    resolved_at = null
+  where id = v_round.id;
+
+  select coalesce(array_length(cards, 1), 0)
+  into v_next_player_card_count
+  from public.bb_player_hands
+  where round_id = v_round.id
+    and player_id = v_next_player_id
+  limit 1;
+
+  if coalesce(v_next_player_card_count, 0) = 0 then
+    perform public.resolve_bb_challenge(v_room.id, v_round.id, v_next_player_id);
+
+    return jsonb_build_object(
+      'ok', true,
+      'forcedChallenge', true
+    );
+  end if;
+
+  return jsonb_build_object(
+    'ok', true
+  );
+end;
+$$;
+
+create or replace function public.challenge_bb_play(
+  room_code_input text,
+  player_id_input uuid,
+  player_secret_input text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_player public.room_players;
+  v_round public.bb_rounds;
+begin
+  select *
+  into v_room
+  from public.game_rooms
+  where code = upper(btrim(room_code_input))
+    and game_slug = 'bb'
+  limit 1;
+
+  if not found then
+    raise exception 'La sala no existe.';
+  end if;
+
+  select *
+  into v_player
+  from public.room_players
+  where id = player_id_input
+    and room_id = v_room.id
+    and player_secret = player_secret_input
+  limit 1;
+
+  if not found then
+    raise exception 'La sesion del jugador no es valida.';
+  end if;
+
+  select *
+  into v_round
+  from public.bb_rounds
+  where room_id = v_room.id
+  order by round_number desc
+  limit 1
+  for update;
+
+  if not found then
+    raise exception 'La ronda no existe.';
+  end if;
+
+  if v_round.status <> 'pending' then
+    raise exception 'La ronda actual ya esta cerrada.';
+  end if;
+
+  if v_round.current_player_id <> v_player.id then
+    raise exception 'No es tu turno.';
+  end if;
+
+  if v_round.last_play_player_id is null or v_round.last_play_count = 0 then
+    raise exception 'Todavia no hay una jugada para desafiar.';
+  end if;
+
+  return public.resolve_bb_challenge(v_room.id, v_round.id, v_player.id);
+end;
+$$;
+
+create or replace function public.get_bb_room_snapshot(
+  room_code_input text,
+  player_id_input uuid,
+  player_secret_input text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_player public.room_players;
+  v_round public.bb_rounds;
+begin
+  select *
+  into v_room
+  from public.game_rooms
+  where code = upper(btrim(room_code_input))
+    and game_slug = 'bb'
+  limit 1;
+
+  if not found then
+    raise exception 'La sala no existe.';
+  end if;
+
+  select *
+  into v_player
+  from public.room_players
+  where id = player_id_input
+    and room_id = v_room.id
+    and player_secret = player_secret_input
+  limit 1;
+
+  if not found then
+    raise exception 'La sesion del jugador no es valida.';
+  end if;
+
+  select *
+  into v_round
+  from public.bb_rounds
+  where room_id = v_room.id
+  order by round_number desc
+  limit 1;
+
+  return jsonb_build_object(
+    'roomId', v_room.id,
+    'roomCode', v_room.code,
+    'gameSlug', v_room.game_slug,
+    'roomStatus', v_room.status,
+    'createdAt', v_room.created_at,
+    'playerCount', (
+      select count(*)
+      from public.room_players
+      where room_id = v_room.id
+    ),
+    'players', coalesce((
+      select jsonb_agg(
+        jsonb_build_object(
+          'id', p.id,
+          'nickname', p.nickname,
+          'isHost', p.is_host,
+          'joinedAt', p.joined_at,
+          'livesRemaining', s.lives_remaining,
+          'isEliminated', s.is_eliminated
+        )
+        order by p.joined_at asc
+      )
+      from public.room_players p
+      join public.bb_player_states s
+        on s.player_id = p.id
+       and s.room_id = p.room_id
+      where p.room_id = v_room.id
+    ), '[]'::jsonb),
+    'currentRound', case
+      when v_round.id is null then null
+      else jsonb_build_object(
+        'id', v_round.id,
+        'roundNumber', v_round.round_number,
+        'status', v_round.status,
+        'targetColor', v_round.target_color,
+        'currentPlayerId', v_round.current_player_id,
+        'currentPlayerNickname', (
+          select nickname
+          from public.room_players
+          where id = v_round.current_player_id
+        ),
+        'lastPlayPlayerId', v_round.last_play_player_id,
+        'lastPlayPlayerNickname', (
+          select nickname
+          from public.room_players
+          where id = v_round.last_play_player_id
+        ),
+        'lastPlayCount', v_round.last_play_count,
+        'pileCount', v_round.pile_count,
+        'challengeResult', v_round.challenge_result,
+        'challengerNickname', (
+          select nickname
+          from public.room_players
+          where id = v_round.challenger_player_id
+        ),
+        'loserPlayerId', v_round.loser_player_id,
+        'loserNickname', (
+          select nickname
+          from public.room_players
+          where id = v_round.loser_player_id
+        ),
+        'winnerNickname', (
+          select nickname
+          from public.room_players
+          where id = v_round.winner_player_id
+        ),
+        'revealedCards', case
+          when v_round.status = 'revealed' then to_jsonb(v_round.last_play_cards)
+          else '[]'::jsonb
+        end,
+        'handCards', coalesce((
+          select to_jsonb(h.cards)
+          from public.bb_player_hands h
+          where h.round_id = v_round.id
+            and h.player_id = v_player.id
+          limit 1
+        ), '[]'::jsonb),
+        'hands', coalesce((
+          select jsonb_agg(
+            jsonb_build_object(
+              'playerId', p.id,
+              'nickname', p.nickname,
+              'isSelf', p.id = v_player.id,
+              'cardCount', coalesce(array_length(h.cards, 1), 0),
+              'cards', case
+                when p.id = v_player.id then h.cards
+                else array(
+                  select 'hidden'::text
+                  from generate_series(1, coalesce(array_length(h.cards, 1), 0))
+                )
+              end
+            )
+            order by case when p.id = v_player.id then 0 else 1 end, p.joined_at asc
+          )
+          from public.bb_player_hands h
+          join public.room_players p on p.id = h.player_id
+          where h.round_id = v_round.id
+        ), '[]'::jsonb)
+      )
+    end
+  );
+end;
+$$;
+
 alter table public.game_rooms enable row level security;
 alter table public.room_players enable row level security;
 alter table public.rps_rounds enable row level security;
@@ -2334,6 +3313,9 @@ alter table public.bj_rounds enable row level security;
 alter table public.bj_player_hands enable row level security;
 alter table public.bjd_rounds enable row level security;
 alter table public.bjd_player_hands enable row level security;
+alter table public.bb_player_states enable row level security;
+alter table public.bb_rounds enable row level security;
+alter table public.bb_player_hands enable row level security;
 
 drop policy if exists "public read rooms" on public.game_rooms;
 create policy "public read rooms"
@@ -2373,6 +3355,9 @@ using (true);
 
 drop policy if exists "public read bjd rounds" on public.bjd_rounds;
 drop policy if exists "public read bjd hands" on public.bjd_player_hands;
+drop policy if exists "public read bb states" on public.bb_player_states;
+drop policy if exists "public read bb rounds" on public.bb_rounds;
+drop policy if exists "public read bb hands" on public.bb_player_hands;
 
 grant select on public.game_rooms to anon, authenticated;
 grant select on public.room_players to anon, authenticated;
@@ -2383,6 +3368,9 @@ grant select on public.bj_player_hands to anon, authenticated;
 revoke all on public.rps_moves from anon, authenticated;
 revoke all on public.bjd_rounds from anon, authenticated;
 revoke all on public.bjd_player_hands from anon, authenticated;
+revoke all on public.bb_player_states from anon, authenticated;
+revoke all on public.bb_rounds from anon, authenticated;
+revoke all on public.bb_player_hands from anon, authenticated;
 
 revoke all on function public.create_rps_room(text) from public;
 revoke all on function public.join_rps_room(text, text) from public;
@@ -2404,6 +3392,12 @@ revoke all on function public.join_bjd_room(text, text) from public;
 revoke all on function public.submit_bjd_action(text, uuid, text, text) from public;
 revoke all on function public.start_next_bjd_round(text, uuid, text) from public;
 revoke all on function public.get_bjd_room_snapshot(text, uuid, text) from public;
+revoke all on function public.create_bb_room(text) from public;
+revoke all on function public.join_bb_room(text, text) from public;
+revoke all on function public.start_next_bb_round(text, uuid, text) from public;
+revoke all on function public.play_bb_cards(text, uuid, text, integer[]) from public;
+revoke all on function public.challenge_bb_play(text, uuid, text) from public;
+revoke all on function public.get_bb_room_snapshot(text, uuid, text) from public;
 
 grant execute on function public.create_rps_room(text) to anon, authenticated;
 grant execute on function public.join_rps_room(text, text) to anon, authenticated;
@@ -2425,6 +3419,12 @@ grant execute on function public.join_bjd_room(text, text) to anon, authenticate
 grant execute on function public.submit_bjd_action(text, uuid, text, text) to anon, authenticated;
 grant execute on function public.start_next_bjd_round(text, uuid, text) to anon, authenticated;
 grant execute on function public.get_bjd_room_snapshot(text, uuid, text) to anon, authenticated;
+grant execute on function public.create_bb_room(text) to anon, authenticated;
+grant execute on function public.join_bb_room(text, text) to anon, authenticated;
+grant execute on function public.start_next_bb_round(text, uuid, text) to anon, authenticated;
+grant execute on function public.play_bb_cards(text, uuid, text, integer[]) to anon, authenticated;
+grant execute on function public.challenge_bb_play(text, uuid, text) to anon, authenticated;
+grant execute on function public.get_bb_room_snapshot(text, uuid, text) to anon, authenticated;
 
 do $$
 begin
