@@ -21,21 +21,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { getSavedNickname, saveNickname } from "@/lib/rps";
 import {
-  createRoom,
-  getRoomSnapshot,
-  getSavedNickname,
-  joinRoom,
-  loadRoomSession,
-  rpsChoices,
-  saveNickname,
-  saveRoomSession,
-  startNextRound,
-  submitMove,
-  type RoomSession,
-  type RpsChoice,
-  type RpsSnapshot,
-} from "@/lib/rps";
+  createTttRoom,
+  getTttRoomSnapshot,
+  joinTttRoom,
+  loadTttRoomSession,
+  saveTttRoomSession,
+  startNextTttRound,
+  submitTttMove,
+  type TttRoomSession,
+  type TttSnapshot,
+} from "@/lib/ttt";
 import {
   getSupabaseBrowserClient,
   isSupabaseConfigured,
@@ -51,7 +48,29 @@ function buildShareUrl(roomCode: string) {
   return url.toString();
 }
 
-function RpsRoomContent() {
+function symbolForPlayer(snapshot: TttSnapshot | null, playerId: string) {
+  if (!snapshot) {
+    return "";
+  }
+
+  return snapshot.currentRound.startingPlayerId === playerId ? "X" : "O";
+}
+
+function resultLabel(snapshot: TttSnapshot | null, t: (key: string, variables?: Record<string, string | number>) => string) {
+  if (!snapshot) {
+    return "";
+  }
+
+  if (snapshot.currentRound.winnerPlayerId) {
+    return t("ttt.resultWinner", {
+      name: snapshot.currentRound.winnerNickname ?? "",
+    });
+  }
+
+  return t("ttt.tie");
+}
+
+function TttRoomContent() {
   const { t } = useLanguage();
   const router = useRouter();
   const pathname = usePathname();
@@ -60,10 +79,9 @@ function RpsRoomContent() {
 
   const [nickname, setNickname] = useState("");
   const [manualCode, setManualCode] = useState("");
-  const [session, setSession] = useState<RoomSession | null>(null);
-  const [snapshot, setSnapshot] = useState<RpsSnapshot | null>(null);
+  const [session, setSession] = useState<TttRoomSession | null>(null);
+  const [snapshot, setSnapshot] = useState<TttSnapshot | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [shareState, setShareState] = useState<"idle" | "copied" | "shared">(
     "idle",
@@ -75,7 +93,7 @@ function RpsRoomContent() {
 
   async function loadSnapshot(code: string) {
     try {
-      const data = await getRoomSnapshot(code);
+      const data = await getTttRoomSnapshot(code);
       setSnapshot(data);
       setError(null);
     } catch (snapshotError) {
@@ -83,7 +101,7 @@ function RpsRoomContent() {
       setError(
         snapshotError instanceof Error
           ? snapshotError.message
-          : t("rps.loadRoomError"),
+          : t("ttt.loadRoomError"),
       );
     }
   }
@@ -99,7 +117,7 @@ function RpsRoomContent() {
       return;
     }
 
-    setSession(loadRoomSession(roomCode));
+    setSession(loadTttRoomSession(roomCode));
   }, [roomCode]);
 
   const refreshSnapshot = useEffectEvent((code: string) => {
@@ -144,7 +162,7 @@ function RpsRoomContent() {
     };
 
     const channel = client
-      .channel(`rps-room-${snapshot.roomId}`)
+      .channel(`ttt-room-${snapshot.roomId}`)
       .on(
         "postgres_changes",
         {
@@ -171,7 +189,7 @@ function RpsRoomContent() {
           event: "*",
           filter: `room_id=eq.${snapshot.roomId}`,
           schema: "public",
-          table: "rps_rounds",
+          table: "ttt_rounds",
         },
         syncRoom,
       )
@@ -204,21 +222,19 @@ function RpsRoomContent() {
     const trimmedName = nickname.trim();
 
     if (!trimmedName) {
-      setError(t("rps.nicknameBeforeCreate"));
+      setError(t("ttt.nicknameBeforeCreate"));
       return;
     }
 
     setBusyAction("create");
     setError(null);
-    setFeedback(null);
 
     try {
-      const nextSession = await createRoom(trimmedName);
+      const nextSession = await createTttRoom(trimmedName);
       saveNickname(trimmedName);
-      saveRoomSession(nextSession);
+      saveTttRoomSession(nextSession);
       setSession(nextSession);
       setShareState("idle");
-      setFeedback(null);
 
       startTransition(() => {
         router.replace(`${pathname}?room=${nextSession.roomCode}`);
@@ -229,7 +245,7 @@ function RpsRoomContent() {
       setError(
         createError instanceof Error
           ? createError.message
-          : t("rps.createRoomError"),
+          : t("ttt.createRoomError"),
       );
     } finally {
       setBusyAction(null);
@@ -240,56 +256,52 @@ function RpsRoomContent() {
     const trimmedName = nickname.trim();
 
     if (!trimmedName) {
-      setError(t("rps.nicknameBeforeJoin"));
+      setError(t("ttt.nicknameBeforeJoin"));
       return;
     }
 
     if (!roomCode) {
-      setError(t("rps.roomCodeMissing"));
+      setError(t("ttt.roomCodeMissing"));
       return;
     }
 
     setBusyAction("join");
     setError(null);
-    setFeedback(null);
 
     try {
-      const nextSession = await joinRoom(roomCode, trimmedName);
+      const nextSession = await joinTttRoom(roomCode, trimmedName);
       saveNickname(trimmedName);
-      saveRoomSession(nextSession);
+      saveTttRoomSession(nextSession);
       setSession(nextSession);
-      setFeedback(null);
       await loadSnapshot(nextSession.roomCode);
     } catch (joinError) {
       setError(
         joinError instanceof Error
           ? joinError.message
-          : t("rps.joinRoomError"),
+          : t("ttt.joinRoomError"),
       );
     } finally {
       setBusyAction(null);
     }
   }
 
-  async function handleSubmitMove(choice: RpsChoice) {
+  async function handleSubmitMove(cellIndex: number) {
     if (!session) {
-      setError(t("rps.firstEnterRoom"));
+      setError(t("ttt.firstEnterRoom"));
       return;
     }
 
-    setBusyAction(choice);
+    setBusyAction(`cell-${cellIndex}`);
     setError(null);
-    setFeedback(null);
 
     try {
-      await submitMove(session, choice);
-      setFeedback(null);
+      await submitTttMove(session, cellIndex);
       await loadSnapshot(session.roomCode);
     } catch (moveError) {
       setError(
         moveError instanceof Error
           ? moveError.message
-          : t("rps.sendMoveError"),
+          : t("ttt.playMoveError"),
       );
     } finally {
       setBusyAction(null);
@@ -298,23 +310,21 @@ function RpsRoomContent() {
 
   async function handleNextRound() {
     if (!session) {
-      setError(t("rps.firstEnterRoom"));
+      setError(t("ttt.firstEnterRoom"));
       return;
     }
 
     setBusyAction("next-round");
     setError(null);
-    setFeedback(null);
 
     try {
-      await startNextRound(session);
-      setFeedback(null);
+      await startNextTttRound(session);
       await loadSnapshot(session.roomCode);
     } catch (roundError) {
       setError(
         roundError instanceof Error
           ? roundError.message
-          : t("rps.nextRoundError"),
+          : t("ttt.nextRoundError"),
       );
     } finally {
       setBusyAction(null);
@@ -331,7 +341,7 @@ function RpsRoomContent() {
     if (navigator.share) {
       try {
         await navigator.share({
-          text: t("rps.shareText"),
+          text: t("ttt.shareText"),
           title: t("common.appName"),
           url,
         });
@@ -351,7 +361,7 @@ function RpsRoomContent() {
     const normalized = normalizeRoomCode(manualCode);
 
     if (!normalized) {
-      setError(t("rps.invalidRoomCode"));
+      setError(t("ttt.invalidRoomCode"));
       return;
     }
 
@@ -360,24 +370,25 @@ function RpsRoomContent() {
     });
   }
 
-  const alreadyPlayed =
-    !!session &&
-    !!snapshot?.currentRound.submittedPlayerIds.includes(session.playerId);
   const canPlay =
     !!session &&
     !!snapshot &&
     snapshot.playerCount === 2 &&
-    snapshot.currentRound.status === "pending";
+    snapshot.currentRound.status === "pending" &&
+    snapshot.currentRound.nextPlayerId === session.playerId;
   const canStartNewRound =
     !!session &&
     !!snapshot &&
     snapshot.playerCount === 2 &&
     snapshot.currentRound.status === "revealed";
-  const gameTitle = t("games.rps.title");
-
-  function choiceLabel(choice: RpsChoice) {
-    return t(`rps.choices.${choice}.label`);
-  }
+  const gameTitle = t("games.ttt.title");
+  const turnLabel =
+    snapshot?.currentRound.status === "pending" &&
+    snapshot.currentRound.nextPlayerNickname
+      ? t("ttt.turnLabel", {
+          name: snapshot.currentRound.nextPlayerNickname,
+        })
+      : null;
 
   return (
     <main className="min-h-screen bg-[#020202] px-4 py-6 text-stone-100 sm:px-6 lg:px-8">
@@ -402,25 +413,25 @@ function RpsRoomContent() {
             {!isSupabaseConfigured() ? (
               <div className="space-y-4">
                 <p className="text-sm uppercase tracking-[0.3em] text-stone-500">
-                  {t("rps.pendingConfig")}
+                  {t("ttt.pendingConfig")}
                 </p>
                 <h2 className="font-[family-name:var(--font-display)] text-3xl">
-                  {t("rps.connectSupabase")}
+                  {t("ttt.connectSupabase")}
                 </h2>
                 <p className="max-w-2xl text-sm leading-7 text-stone-300 sm:text-base">
-                  {t("rps.missingSupabase")}
+                  {t("ttt.missingSupabase")}
                 </p>
                 <div className="glass-tile rounded-[28px] p-4 text-sm text-stone-300">
-                  <p>{t("rps.setupStep1")}</p>
-                  <p>{t("rps.setupStep2")}</p>
-                  <p>{t("rps.setupStep3")}</p>
-                  <p>{t("rps.setupStep4")}</p>
+                  <p>{t("ttt.setupStep1")}</p>
+                  <p>{t("ttt.setupStep2")}</p>
+                  <p>{t("ttt.setupStep3")}</p>
+                  <p>{t("ttt.setupStep4")}</p>
                 </div>
               </div>
             ) : !roomCode ? (
               <div className="space-y-8">
                 <h2 className="font-[family-name:var(--font-display)] text-2xl">
-                  {t("rps.createRoom")}
+                  {t("ttt.createRoom")}
                 </h2>
 
                 <div className="grid gap-4 md:grid-cols-[1fr,auto]">
@@ -429,7 +440,7 @@ function RpsRoomContent() {
                       className="glass-tile w-full rounded-2xl px-4 py-3 text-base outline-none transition focus:border-white/20"
                       maxLength={24}
                       onChange={(event) => setNickname(event.target.value)}
-                      placeholder={t("rps.yourNickname")}
+                      placeholder={t("ttt.yourNickname")}
                       value={nickname}
                     />
                   </label>
@@ -441,8 +452,8 @@ function RpsRoomContent() {
                     type="button"
                   >
                     {busyAction === "create"
-                      ? t("rps.creating")
-                      : t("rps.createRoom")}
+                      ? t("ttt.creating")
+                      : t("ttt.createRoom")}
                   </button>
                 </div>
 
@@ -454,14 +465,14 @@ function RpsRoomContent() {
                     className="glass-tile w-full rounded-2xl px-4 py-3 text-base uppercase outline-none transition focus:border-white/20"
                     maxLength={6}
                     onChange={(event) => setManualCode(event.target.value)}
-                    placeholder={t("rps.roomCodePlaceholder")}
+                    placeholder={t("ttt.roomCodePlaceholder")}
                     value={manualCode}
                   />
                   <button
                     className="rounded-2xl border border-white/10 px-5 py-3 text-sm font-semibold text-stone-100 transition hover:border-white/20"
                     type="submit"
                   >
-                    {t("rps.join")}
+                    {t("ttt.join")}
                   </button>
                 </form>
               </div>
@@ -472,7 +483,7 @@ function RpsRoomContent() {
                     {t("common.room")} {roomCode}
                   </p>
                   <h2 className="font-[family-name:var(--font-display)] text-2xl">
-                    {t("rps.join")}
+                    {t("ttt.join")}
                   </h2>
                 </div>
 
@@ -482,7 +493,7 @@ function RpsRoomContent() {
                       className="glass-tile w-full rounded-2xl px-4 py-3 text-base outline-none transition focus:border-white/20"
                       maxLength={24}
                       onChange={(event) => setNickname(event.target.value)}
-                      placeholder={t("rps.yourNickname")}
+                      placeholder={t("ttt.yourNickname")}
                       value={nickname}
                     />
                   </label>
@@ -494,8 +505,8 @@ function RpsRoomContent() {
                     type="button"
                   >
                     {busyAction === "join"
-                      ? t("rps.entering")
-                      : t("rps.enterRoom")}
+                      ? t("ttt.entering")
+                      : t("ttt.enterRoom")}
                   </button>
                 </div>
               </div>
@@ -504,8 +515,13 @@ function RpsRoomContent() {
                 <div className="flex items-center justify-between gap-4">
                   <div className="space-y-2">
                     <h2 className="font-[family-name:var(--font-display)] text-2xl">
-                      Ronda {snapshot?.currentRound.roundNumber ?? 1}
+                      {t("ttt.round", {
+                        round: snapshot?.currentRound.roundNumber ?? 1,
+                      })}
                     </h2>
+                    {turnLabel ? (
+                      <p className="text-sm text-stone-400">{turnLabel}</p>
+                    ) : null}
                   </div>
 
                   <button
@@ -522,49 +538,39 @@ function RpsRoomContent() {
                   </button>
                 </div>
 
-                <div className="glass-tile space-y-4 rounded-[24px] p-4">
+                <div className="glass-tile rounded-[24px] p-4">
                   <div className="flex items-center justify-between">
                     <p className="text-xs uppercase tracking-[0.24em] text-stone-500">
-                      {t("rps.choose")}
+                      {t("ttt.board")}
                     </p>
                     <p className="text-sm text-stone-400">
-                      {snapshot?.currentRound.submittedCount ?? 0}/{snapshot?.playerCount ?? 0}
+                      {snapshot?.currentRound.moveCount ?? 0}/9
                     </p>
                   </div>
 
-                  <div className="grid gap-3 md:grid-cols-3">
-                    {rpsChoices.map((option) => {
+                  <div className="mt-4 grid grid-cols-3 gap-3">
+                    {snapshot?.currentRound.board.map((cell, index) => {
                       const disabled =
-                        !canPlay || alreadyPlayed || busyAction === option.choice;
+                        !canPlay ||
+                        cell !== "" ||
+                        busyAction === `cell-${index}`;
 
                       return (
                         <button
-                          key={option.choice}
-                          className="glass-tile rounded-[24px] p-4 text-left transition hover:border-white/20 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
+                          key={index}
+                          className="glass-tile aspect-square rounded-[24px] text-4xl font-semibold text-stone-100 transition hover:border-white/20 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60 sm:text-5xl"
                           disabled={disabled}
-                          onClick={() => handleSubmitMove(option.choice)}
+                          onClick={() => handleSubmitMove(index)}
                           type="button"
                         >
-                          <p className="text-lg font-semibold">
-                            {choiceLabel(option.choice)}
-                          </p>
-                          <p className="mt-1 text-sm text-stone-400">
-                            {t(`rps.choices.${option.choice}.description`)}
-                          </p>
+                          {cell || <span className="text-stone-700">+</span>}
                         </button>
                       );
                     })}
                   </div>
-
                 </div>
               </div>
             )}
-
-            {feedback ? (
-              <div className="mt-6 rounded-2xl border border-lime-200/15 bg-lime-300/10 px-4 py-3 text-sm text-lime-100">
-                {feedback}
-              </div>
-            ) : null}
 
             {error ? (
               <div className="mt-4 rounded-2xl border border-red-300/20 bg-red-400/10 px-4 py-3 text-sm text-red-100">
@@ -577,7 +583,7 @@ function RpsRoomContent() {
             <section className="glass-panel rounded-[28px] p-5">
               <div className="flex items-center justify-between">
                 <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">
-                  {t("rps.players")}
+                  {t("ttt.players")}
                 </p>
                 <p className="text-sm text-stone-400">
                   {snapshot?.playerCount ?? 0}/2
@@ -586,10 +592,17 @@ function RpsRoomContent() {
 
               <div className="mt-4 space-y-3">
                 {snapshot?.players.map((player) => {
+                  const isCurrentTurn =
+                    snapshot.currentRound.status === "pending" &&
+                    snapshot.currentRound.nextPlayerId === player.id;
+                  const playerSymbol = symbolForPlayer(snapshot, player.id);
+
                   return (
                     <div
                       key={player.id}
-                      className="glass-tile rounded-2xl px-4 py-3"
+                      className={`glass-tile rounded-2xl px-4 py-3 ${
+                        isCurrentTurn ? "border-white/20" : ""
+                      }`}
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
@@ -601,6 +614,9 @@ function RpsRoomContent() {
                               H
                             </span>
                           ) : null}
+                          <span className="rounded-full border border-white/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-stone-300">
+                            {playerSymbol}
+                          </span>
                         </div>
                         <p className="text-2xl font-semibold leading-none text-stone-100">
                           {(player.score ?? 0).toString()}
@@ -612,11 +628,12 @@ function RpsRoomContent() {
 
                 {snapshot && snapshot.playerCount < 2 ? (
                   <div className="rounded-2xl border border-dashed border-white/12 px-4 py-5 text-sm text-stone-400">
-                    {t("rps.waitingSecondPlayer")}
+                    {t("ttt.waitingSecondPlayer")}
                   </div>
                 ) : null}
               </div>
             </section>
+
             <section className="glass-panel rounded-[28px] p-5">
               <p className="text-sm text-stone-400">
                 {t("common.room")}:{" "}
@@ -633,14 +650,8 @@ function RpsRoomContent() {
         <DialogContent>
           <div className="flex items-start justify-between gap-4">
             <DialogHeader>
-              <DialogTitle>{t("rps.result")}</DialogTitle>
-              <DialogDescription>
-                {snapshot?.currentRound.winnerPlayerId
-                  ? t("rps.resultWinner", {
-                      name: snapshot.currentRound.winnerNickname ?? "",
-                    })
-                  : t("rps.tie")}
-              </DialogDescription>
+              <DialogTitle>{t("ttt.result")}</DialogTitle>
+              <DialogDescription>{resultLabel(snapshot, t)}</DialogDescription>
             </DialogHeader>
 
             <button
@@ -653,16 +664,13 @@ function RpsRoomContent() {
             </button>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            {snapshot?.currentRound.revealedMoves.map((move) => (
+          <div className="mt-5 grid grid-cols-3 gap-3">
+            {snapshot?.currentRound.board.map((cell, index) => (
               <div
-                key={move.playerId}
-                className="glass-tile rounded-2xl px-4 py-3"
+                key={index}
+                className="glass-tile flex aspect-square items-center justify-center rounded-2xl text-3xl font-semibold text-stone-50"
               >
-                <p className="text-sm text-stone-400">{move.nickname}</p>
-                <p className="mt-1 text-lg font-semibold text-stone-50">
-                  {choiceLabel(move.choice)}
-                </p>
+                {cell || <span className="text-stone-700">+</span>}
               </div>
             ))}
           </div>
@@ -676,8 +684,8 @@ function RpsRoomContent() {
                 type="button"
               >
                 {busyAction === "next-round"
-                  ? t("rps.opening")
-                  : t("rps.nextRound")}
+                  ? t("ttt.opening")
+                  : t("ttt.nextRound")}
               </button>
             ) : null}
           </DialogFooter>
@@ -687,7 +695,7 @@ function RpsRoomContent() {
   );
 }
 
-function RpsRoomFallback() {
+function TttRoomFallback() {
   const { t } = useLanguage();
 
   return (
@@ -699,10 +707,10 @@ function RpsRoomFallback() {
   );
 }
 
-export function RpsRoom() {
+export function TttRoom() {
   return (
-    <Suspense fallback={<RpsRoomFallback />}>
-      <RpsRoomContent />
+    <Suspense fallback={<TttRoomFallback />}>
+      <TttRoomContent />
     </Suspense>
   );
 }

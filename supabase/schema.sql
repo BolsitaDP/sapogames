@@ -10,6 +10,11 @@ create table if not exists public.game_rooms (
   updated_at timestamptz not null default now()
 );
 
+alter table public.game_rooms drop constraint if exists game_rooms_game_slug_check;
+alter table public.game_rooms
+  add constraint game_rooms_game_slug_check
+  check (game_slug in ('rps', 'ttt'));
+
 create table if not exists public.room_players (
   id uuid primary key default gen_random_uuid(),
   room_id uuid not null references public.game_rooms(id) on delete cascade,
@@ -39,6 +44,20 @@ create table if not exists public.rps_moves (
   unique (round_id, player_id)
 );
 
+create table if not exists public.ttt_rounds (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.game_rooms(id) on delete cascade,
+  round_number integer not null,
+  status text not null default 'pending' check (status in ('pending', 'revealed')),
+  starting_player_id uuid not null references public.room_players(id) on delete cascade,
+  next_player_id uuid references public.room_players(id) on delete set null,
+  winner_player_id uuid references public.room_players(id) on delete set null,
+  board text[] not null default array['', '', '', '', '', '', '', '', '']::text[],
+  move_count integer not null default 0,
+  created_at timestamptz not null default now(),
+  resolved_at timestamptz
+);
+
 do $$
 begin
   if not exists (
@@ -48,6 +67,18 @@ begin
   ) then
     alter table public.rps_rounds
       add constraint rps_rounds_room_round_unique unique (room_id, round_number);
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'ttt_rounds_room_round_unique'
+  ) then
+    alter table public.ttt_rounds
+      add constraint ttt_rounds_room_round_unique unique (room_id, round_number);
   end if;
 end $$;
 
@@ -518,10 +549,444 @@ begin
 end;
 $$;
 
+create or replace function public.resolve_ttt_winner(board_input text[])
+returns text
+language sql
+immutable
+as $$
+  select case
+    when board_input[1] <> '' and board_input[1] = board_input[2] and board_input[2] = board_input[3] then board_input[1]
+    when board_input[4] <> '' and board_input[4] = board_input[5] and board_input[5] = board_input[6] then board_input[4]
+    when board_input[7] <> '' and board_input[7] = board_input[8] and board_input[8] = board_input[9] then board_input[7]
+    when board_input[1] <> '' and board_input[1] = board_input[4] and board_input[4] = board_input[7] then board_input[1]
+    when board_input[2] <> '' and board_input[2] = board_input[5] and board_input[5] = board_input[8] then board_input[2]
+    when board_input[3] <> '' and board_input[3] = board_input[6] and board_input[6] = board_input[9] then board_input[3]
+    when board_input[1] <> '' and board_input[1] = board_input[5] and board_input[5] = board_input[9] then board_input[1]
+    when board_input[3] <> '' and board_input[3] = board_input[5] and board_input[5] = board_input[7] then board_input[3]
+    else null
+  end;
+$$;
+
+create or replace function public.create_ttt_room(host_nickname text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_host public.room_players;
+  v_secret text := encode(gen_random_bytes(16), 'hex');
+begin
+  if host_nickname is null or btrim(host_nickname) = '' then
+    raise exception 'El apodo no puede estar vacio.';
+  end if;
+
+  insert into public.game_rooms (code, game_slug)
+  values (public.generate_room_code(), 'ttt')
+  returning * into v_room;
+
+  insert into public.room_players (room_id, nickname, is_host, player_secret)
+  values (v_room.id, left(btrim(host_nickname), 24), true, v_secret)
+  returning * into v_host;
+
+  update public.game_rooms
+  set host_player_id = v_host.id
+  where id = v_room.id;
+
+  insert into public.ttt_rounds (room_id, round_number, starting_player_id, next_player_id)
+  values (v_room.id, 1, v_host.id, v_host.id);
+
+  return jsonb_build_object(
+    'nickname', v_host.nickname,
+    'playerId', v_host.id,
+    'playerSecret', v_secret,
+    'roomCode', v_room.code,
+    'roomId', v_room.id
+  );
+end;
+$$;
+
+create or replace function public.join_ttt_room(room_code_input text, player_nickname text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_player public.room_players;
+  v_secret text := encode(gen_random_bytes(16), 'hex');
+  v_players_count integer;
+begin
+  if player_nickname is null or btrim(player_nickname) = '' then
+    raise exception 'El apodo no puede estar vacio.';
+  end if;
+
+  select *
+  into v_room
+  from public.game_rooms
+  where code = upper(btrim(room_code_input))
+    and game_slug = 'ttt'
+  limit 1;
+
+  if not found then
+    raise exception 'La sala no existe.';
+  end if;
+
+  select count(*)
+  into v_players_count
+  from public.room_players
+  where room_id = v_room.id;
+
+  if v_players_count >= 2 then
+    raise exception 'La sala ya esta completa.';
+  end if;
+
+  insert into public.room_players (room_id, nickname, is_host, player_secret)
+  values (v_room.id, left(btrim(player_nickname), 24), false, v_secret)
+  returning * into v_player;
+
+  update public.game_rooms
+  set status = 'playing'
+  where id = v_room.id;
+
+  return jsonb_build_object(
+    'nickname', v_player.nickname,
+    'playerId', v_player.id,
+    'playerSecret', v_secret,
+    'roomCode', v_room.code,
+    'roomId', v_room.id
+  );
+end;
+$$;
+
+create or replace function public.submit_ttt_move(
+  room_code_input text,
+  player_id_input uuid,
+  player_secret_input text,
+  cell_index_input integer
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_player public.room_players;
+  v_other_player public.room_players;
+  v_round public.ttt_rounds;
+  v_board text[];
+  v_symbol text;
+  v_winner_symbol text;
+  v_winner_player_id uuid;
+  v_players_count integer;
+begin
+  if cell_index_input is null or cell_index_input < 0 or cell_index_input > 8 then
+    raise exception 'Casilla invalida.';
+  end if;
+
+  select *
+  into v_room
+  from public.game_rooms
+  where code = upper(btrim(room_code_input))
+    and game_slug = 'ttt'
+  limit 1;
+
+  if not found then
+    raise exception 'La sala no existe.';
+  end if;
+
+  select *
+  into v_player
+  from public.room_players
+  where id = player_id_input
+    and room_id = v_room.id
+    and player_secret = player_secret_input
+  limit 1;
+
+  if not found then
+    raise exception 'La sesion del jugador no es valida.';
+  end if;
+
+  select count(*)
+  into v_players_count
+  from public.room_players
+  where room_id = v_room.id;
+
+  if v_players_count < 2 then
+    raise exception 'Falta un jugador para empezar.';
+  end if;
+
+  select *
+  into v_other_player
+  from public.room_players
+  where room_id = v_room.id
+    and id <> v_player.id
+  order by joined_at asc
+  limit 1;
+
+  select *
+  into v_round
+  from public.ttt_rounds
+  where room_id = v_room.id
+  order by round_number desc
+  limit 1
+  for update;
+
+  if v_round.status <> 'pending' then
+    raise exception 'La ronda actual ya esta cerrada.';
+  end if;
+
+  if v_round.next_player_id <> v_player.id then
+    raise exception 'No es tu turno.';
+  end if;
+
+  v_board := v_round.board;
+
+  if coalesce(v_board[cell_index_input + 1], '') <> '' then
+    raise exception 'Esa casilla ya esta ocupada.';
+  end if;
+
+  if v_round.starting_player_id = v_player.id then
+    v_symbol := 'X';
+  else
+    v_symbol := 'O';
+  end if;
+
+  v_board[cell_index_input + 1] := v_symbol;
+  v_winner_symbol := public.resolve_ttt_winner(v_board);
+
+  if v_winner_symbol is not null then
+    v_winner_player_id := v_player.id;
+  else
+    v_winner_player_id := null;
+  end if;
+
+  update public.ttt_rounds
+  set
+    board = v_board,
+    move_count = v_round.move_count + 1,
+    next_player_id = case
+      when v_winner_symbol is not null or v_round.move_count + 1 >= 9 then null
+      else v_other_player.id
+    end,
+    status = case
+      when v_winner_symbol is not null or v_round.move_count + 1 >= 9 then 'revealed'
+      else 'pending'
+    end,
+    winner_player_id = v_winner_player_id,
+    resolved_at = case
+      when v_winner_symbol is not null or v_round.move_count + 1 >= 9 then now()
+      else null
+    end
+  where id = v_round.id;
+
+  return jsonb_build_object(
+    'ok', true
+  );
+end;
+$$;
+
+create or replace function public.start_next_ttt_round(
+  room_code_input text,
+  player_id_input uuid,
+  player_secret_input text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_player public.room_players;
+  v_round public.ttt_rounds;
+  v_pending_round public.ttt_rounds;
+  v_next_starting_player_id uuid;
+begin
+  select *
+  into v_room
+  from public.game_rooms
+  where code = upper(btrim(room_code_input))
+    and game_slug = 'ttt'
+  limit 1;
+
+  if not found then
+    raise exception 'La sala no existe.';
+  end if;
+
+  select *
+  into v_player
+  from public.room_players
+  where id = player_id_input
+    and room_id = v_room.id
+    and player_secret = player_secret_input
+  limit 1;
+
+  if not found then
+    raise exception 'La sesion del jugador no es valida.';
+  end if;
+
+  select *
+  into v_pending_round
+  from public.ttt_rounds
+  where room_id = v_room.id
+    and status = 'pending'
+  order by round_number desc
+  limit 1;
+
+  if found then
+    return jsonb_build_object(
+      'roundId', v_pending_round.id,
+      'roundNumber', v_pending_round.round_number
+    );
+  end if;
+
+  select *
+  into v_round
+  from public.ttt_rounds
+  where room_id = v_room.id
+  order by round_number desc
+  limit 1;
+
+  if v_round.status <> 'revealed' then
+    raise exception 'La ronda actual todavia no termina.';
+  end if;
+
+  select id
+  into v_next_starting_player_id
+  from public.room_players
+  where room_id = v_room.id
+    and id <> v_round.starting_player_id
+  order by joined_at asc
+  limit 1;
+
+  begin
+    insert into public.ttt_rounds (
+      room_id,
+      round_number,
+      status,
+      starting_player_id,
+      next_player_id,
+      board,
+      move_count
+    )
+    values (
+      v_room.id,
+      v_round.round_number + 1,
+      'pending',
+      v_next_starting_player_id,
+      v_next_starting_player_id,
+      array['', '', '', '', '', '', '', '', '']::text[],
+      0
+    )
+    returning * into v_pending_round;
+  exception
+    when unique_violation then
+      select *
+      into v_pending_round
+      from public.ttt_rounds
+      where room_id = v_room.id
+      order by round_number desc
+      limit 1;
+  end;
+
+  return jsonb_build_object(
+    'roundId', v_pending_round.id,
+    'roundNumber', v_pending_round.round_number
+  );
+end;
+$$;
+
+create or replace function public.get_ttt_room_snapshot(room_code_input text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_round public.ttt_rounds;
+begin
+  select *
+  into v_room
+  from public.game_rooms
+  where code = upper(btrim(room_code_input))
+    and game_slug = 'ttt'
+  limit 1;
+
+  if not found then
+    raise exception 'La sala no existe.';
+  end if;
+
+  select *
+  into v_round
+  from public.ttt_rounds
+  where room_id = v_room.id
+  order by round_number desc
+  limit 1;
+
+  return jsonb_build_object(
+    'roomId', v_room.id,
+    'roomCode', v_room.code,
+    'gameSlug', v_room.game_slug,
+    'roomStatus', v_room.status,
+    'createdAt', v_room.created_at,
+    'playerCount', (
+      select count(*)
+      from public.room_players
+      where room_id = v_room.id
+    ),
+    'players', coalesce((
+      select jsonb_agg(
+        jsonb_build_object(
+          'id', p.id,
+          'nickname', p.nickname,
+          'isHost', p.is_host,
+          'joinedAt', p.joined_at,
+          'score', (
+            select count(*)
+            from public.ttt_rounds tr
+            where tr.room_id = v_room.id
+              and tr.winner_player_id = p.id
+          )
+        )
+        order by p.joined_at asc
+      )
+      from public.room_players p
+      where p.room_id = v_room.id
+    ), '[]'::jsonb),
+    'currentRound', jsonb_build_object(
+      'id', v_round.id,
+      'roundNumber', v_round.round_number,
+      'status', v_round.status,
+      'startingPlayerId', v_round.starting_player_id,
+      'nextPlayerId', v_round.next_player_id,
+      'nextPlayerNickname', (
+        select nickname
+        from public.room_players
+        where id = v_round.next_player_id
+      ),
+      'winnerPlayerId', v_round.winner_player_id,
+      'winnerNickname', (
+        select nickname
+        from public.room_players
+        where id = v_round.winner_player_id
+      ),
+      'moveCount', v_round.move_count,
+      'board', to_jsonb(v_round.board)
+    )
+  );
+end;
+$$;
+
 alter table public.game_rooms enable row level security;
 alter table public.room_players enable row level security;
 alter table public.rps_rounds enable row level security;
 alter table public.rps_moves enable row level security;
+alter table public.ttt_rounds enable row level security;
 
 drop policy if exists "public read rooms" on public.game_rooms;
 create policy "public read rooms"
@@ -541,9 +1006,16 @@ on public.rps_rounds
 for select
 using (true);
 
+drop policy if exists "public read ttt rounds" on public.ttt_rounds;
+create policy "public read ttt rounds"
+on public.ttt_rounds
+for select
+using (true);
+
 grant select on public.game_rooms to anon, authenticated;
 grant select on public.room_players to anon, authenticated;
 grant select on public.rps_rounds to anon, authenticated;
+grant select on public.ttt_rounds to anon, authenticated;
 revoke all on public.rps_moves from anon, authenticated;
 
 revoke all on function public.create_rps_room(text) from public;
@@ -551,12 +1023,22 @@ revoke all on function public.join_rps_room(text, text) from public;
 revoke all on function public.submit_rps_move(text, uuid, text, text) from public;
 revoke all on function public.start_next_rps_round(text, uuid, text) from public;
 revoke all on function public.get_rps_room_snapshot(text) from public;
+revoke all on function public.create_ttt_room(text) from public;
+revoke all on function public.join_ttt_room(text, text) from public;
+revoke all on function public.submit_ttt_move(text, uuid, text, integer) from public;
+revoke all on function public.start_next_ttt_round(text, uuid, text) from public;
+revoke all on function public.get_ttt_room_snapshot(text) from public;
 
 grant execute on function public.create_rps_room(text) to anon, authenticated;
 grant execute on function public.join_rps_room(text, text) to anon, authenticated;
 grant execute on function public.submit_rps_move(text, uuid, text, text) to anon, authenticated;
 grant execute on function public.start_next_rps_round(text, uuid, text) to anon, authenticated;
 grant execute on function public.get_rps_room_snapshot(text) to anon, authenticated;
+grant execute on function public.create_ttt_room(text) to anon, authenticated;
+grant execute on function public.join_ttt_room(text, text) to anon, authenticated;
+grant execute on function public.submit_ttt_move(text, uuid, text, integer) to anon, authenticated;
+grant execute on function public.start_next_ttt_round(text, uuid, text) to anon, authenticated;
+grant execute on function public.get_ttt_room_snapshot(text) to anon, authenticated;
 
 do $$
 begin
@@ -591,6 +1073,17 @@ begin
       and cls.relname = 'rps_rounds'
   ) then
     alter publication supabase_realtime add table public.rps_rounds;
+  end if;
+
+  if not exists (
+    select 1
+    from pg_publication_rel rel
+    join pg_class cls on cls.oid = rel.prrelid
+    join pg_publication pub on pub.oid = rel.prpubid
+    where pub.pubname = 'supabase_realtime'
+      and cls.relname = 'ttt_rounds'
+  ) then
+    alter publication supabase_realtime add table public.ttt_rounds;
   end if;
 
 end $$;

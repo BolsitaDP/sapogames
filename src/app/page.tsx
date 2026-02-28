@@ -53,7 +53,7 @@ export default function Home() {
         </header>
 
         <section className="mt-8 grid flex-1 grid-cols-1 gap-4 sm:grid-cols-2">
-          {gameCards.map((game) => {
+          {gameCards.map((game, index) => {
             const isLive = game.status === "live";
 
             const content = (
@@ -61,7 +61,7 @@ export default function Home() {
                 <CardContent className="flex h-full flex-col justify-between">
                   <div className="flex items-start justify-between gap-3">
                     <span className="text-4xl text-stone-700 transition group-hover:text-stone-400">
-                      {isLive ? "01" : "--"}
+                      {isLive ? String(index + 1).padStart(2, "0") : "--"}
                     </span>
                     <span className="text-[10px] uppercase tracking-[0.24em] text-stone-600">
                       {isLive ? t("common.live") : t("common.soon")}

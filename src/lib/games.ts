@@ -18,6 +18,15 @@ export const gameCards: GameCard[] = [
     status: "live",
   },
   {
+    slug: "ttt",
+    title: "Tic tac toe",
+    eyebrow: "Listo para jugar",
+    description:
+      "Crea una sala, comparte el link y juega una partida por turnos en segundos.",
+    href: "/games/ttt/",
+    status: "live",
+  },
+  {
     slug: "guess",
     title: "Adivina el numero",
     eyebrow: "Proximamente",
