@@ -2,28 +2,15 @@
 
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
-import { useState } from "react";
+import { useLanguage } from "@/components/language-provider";
 
-const LANGUAGE_STORAGE_KEY = "sapogames:language";
-
-const languages = [
-  { label: "Espanol", value: "es" },
-  { label: "English", value: "en" },
-] as const;
+import { languages, type Language } from "@/lib/i18n";
 
 export default function SettingsPage() {
-  const [language, setLanguage] = useState(() => {
-    if (typeof window === "undefined") {
-      return "es";
-    }
-
-    return window.localStorage.getItem(LANGUAGE_STORAGE_KEY) ?? "es";
-  });
+  const { language, setLanguage, t } = useLanguage();
 
   function handleLanguageChange(event: React.ChangeEvent<HTMLSelectElement>) {
-    const nextLanguage = event.target.value;
-    setLanguage(nextLanguage);
-    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLanguage);
+    setLanguage(event.target.value as Language);
   }
 
   return (
@@ -35,11 +22,11 @@ export default function SettingsPage() {
             href="/"
           >
             <ChevronLeft className="size-4" />
-            Volver
+            {t("common.back")}
           </Link>
 
           <h1 className="font-[family-name:var(--font-display)] text-2xl text-stone-100 sm:text-3xl">
-            Configuracion
+            {t("settings.title")}
           </h1>
         </header>
 
@@ -47,10 +34,10 @@ export default function SettingsPage() {
           <div className="space-y-5">
             <div className="space-y-2">
               <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">
-                Idioma
+                {t("settings.language")}
               </p>
               <h2 className="text-xl font-medium text-stone-100">
-                Seleccion de idioma
+                {t("settings.languageSelection")}
               </h2>
             </div>
 

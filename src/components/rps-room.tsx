@@ -12,9 +12,8 @@ import {
   type FormEvent,
 } from "react";
 
-import { gameCards } from "@/lib/games";
+import { useLanguage } from "@/components/language-provider";
 import {
-  choiceLabel,
   createRoom,
   getRoomSnapshot,
   getSavedNickname,
@@ -34,8 +33,6 @@ import {
   isSupabaseConfigured,
 } from "@/lib/supabase/client";
 
-const liveGame = gameCards.find((game) => game.slug === "rps");
-
 function normalizeRoomCode(value: string) {
   return value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 6);
 }
@@ -47,6 +44,7 @@ function buildShareUrl(roomCode: string) {
 }
 
 function RpsRoomContent() {
+  const { t } = useLanguage();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -73,7 +71,7 @@ function RpsRoomContent() {
       setError(
         snapshotError instanceof Error
           ? snapshotError.message
-          : "No se pudo cargar la sala.",
+          : t("rps.loadRoomError"),
       );
     }
   }
@@ -110,7 +108,7 @@ function RpsRoomContent() {
     }
 
     const intervalId = window.setInterval(() => {
-      void loadSnapshot(roomCode);
+      void refreshSnapshot(roomCode);
     }, 2000);
 
     return () => {
@@ -176,7 +174,7 @@ function RpsRoomContent() {
     const trimmedName = nickname.trim();
 
     if (!trimmedName) {
-      setError("Pon tu apodo antes de crear la sala.");
+      setError(t("rps.nicknameBeforeCreate"));
       return;
     }
 
@@ -201,7 +199,7 @@ function RpsRoomContent() {
       setError(
         createError instanceof Error
           ? createError.message
-          : "No se pudo crear la sala.",
+          : t("rps.createRoomError"),
       );
     } finally {
       setBusyAction(null);
@@ -212,12 +210,12 @@ function RpsRoomContent() {
     const trimmedName = nickname.trim();
 
     if (!trimmedName) {
-      setError("Pon tu apodo para entrar.");
+      setError(t("rps.nicknameBeforeJoin"));
       return;
     }
 
     if (!roomCode) {
-      setError("Falta el codigo de la sala.");
+      setError(t("rps.roomCodeMissing"));
       return;
     }
 
@@ -230,13 +228,13 @@ function RpsRoomContent() {
       saveNickname(trimmedName);
       saveRoomSession(nextSession);
       setSession(nextSession);
-      setFeedback("Entraste a la sala. Ya puedes jugar.");
+      setFeedback(t("rps.joinedRoom"));
       await loadSnapshot(nextSession.roomCode);
     } catch (joinError) {
       setError(
         joinError instanceof Error
           ? joinError.message
-          : "No se pudo entrar a la sala.",
+          : t("rps.joinRoomError"),
       );
     } finally {
       setBusyAction(null);
@@ -245,7 +243,7 @@ function RpsRoomContent() {
 
   async function handleSubmitMove(choice: RpsChoice) {
     if (!session) {
-      setError("Primero entra a la sala.");
+      setError(t("rps.firstEnterRoom"));
       return;
     }
 
@@ -255,13 +253,17 @@ function RpsRoomContent() {
 
     try {
       await submitMove(session, choice);
-      setFeedback(`Tu jugada fue ${choiceLabel(choice)}.`);
+      setFeedback(
+        t("rps.moveSubmitted", {
+          choice: choiceLabel(choice),
+        }),
+      );
       await loadSnapshot(session.roomCode);
     } catch (moveError) {
       setError(
         moveError instanceof Error
           ? moveError.message
-          : "No se pudo enviar la jugada.",
+          : t("rps.sendMoveError"),
       );
     } finally {
       setBusyAction(null);
@@ -270,7 +272,7 @@ function RpsRoomContent() {
 
   async function handleNextRound() {
     if (!session) {
-      setError("Primero entra a la sala.");
+      setError(t("rps.firstEnterRoom"));
       return;
     }
 
@@ -280,13 +282,13 @@ function RpsRoomContent() {
 
     try {
       await startNextRound(session);
-      setFeedback("Nueva ronda lista.");
+      setFeedback(t("rps.nextRoundReady"));
       await loadSnapshot(session.roomCode);
     } catch (roundError) {
       setError(
         roundError instanceof Error
           ? roundError.message
-          : "No se pudo abrir la siguiente ronda.",
+          : t("rps.nextRoundError"),
       );
     } finally {
       setBusyAction(null);
@@ -303,8 +305,8 @@ function RpsRoomContent() {
     if (navigator.share) {
       try {
         await navigator.share({
-          text: "Entra a la sala y juguemos piedra, papel o tijera.",
-          title: "Sapo Games",
+          text: t("rps.shareText"),
+          title: t("common.appName"),
           url,
         });
         setShareState("shared");
@@ -323,7 +325,7 @@ function RpsRoomContent() {
     const normalized = normalizeRoomCode(manualCode);
 
     if (!normalized) {
-      setError("Escribe un codigo valido.");
+      setError(t("rps.invalidRoomCode"));
       return;
     }
 
@@ -345,6 +347,11 @@ function RpsRoomContent() {
     !!snapshot &&
     snapshot.playerCount === 2 &&
     snapshot.currentRound.status === "revealed";
+  const gameTitle = t("games.rps.title");
+
+  function choiceLabel(choice: RpsChoice) {
+    return t(`rps.choices.${choice}.label`);
+  }
 
   return (
     <main className="min-h-screen bg-[#020202] px-4 py-6 text-stone-100 sm:px-6 lg:px-8">
@@ -355,11 +362,11 @@ function RpsRoomContent() {
               href="/"
               className="inline-flex rounded-full border border-white/10 px-4 py-2 text-sm text-stone-300 transition hover:border-white/20 hover:text-stone-100"
             >
-              Atras
+              {t("common.back")}
             </Link>
 
             <h1 className="text-right font-[family-name:var(--font-display)] text-2xl leading-none text-stone-100 sm:text-3xl">
-              {liveGame?.title}
+              {gameTitle}
             </h1>
           </div>
         </header>
@@ -369,27 +376,25 @@ function RpsRoomContent() {
             {!isSupabaseConfigured() ? (
               <div className="space-y-4">
                 <p className="text-sm uppercase tracking-[0.3em] text-stone-500">
-                  Configuracion pendiente
+                  {t("rps.pendingConfig")}
                 </p>
                 <h2 className="font-[family-name:var(--font-display)] text-3xl">
-                  Conecta Supabase para habilitar las salas.
+                  {t("rps.connectSupabase")}
                 </h2>
                 <p className="max-w-2xl text-sm leading-7 text-stone-300 sm:text-base">
-                  Falta definir NEXT_PUBLIC_SUPABASE_URL y
-                  NEXT_PUBLIC_SUPABASE_ANON_KEY. El proyecto ya incluye el SQL y
-                  el workflow para Pages.
+                  {t("rps.missingSupabase")}
                 </p>
                 <div className="glass-tile rounded-[28px] p-4 text-sm text-stone-300">
-                  <p>1. Crea el proyecto en Supabase.</p>
-                  <p>2. Ejecuta supabase/schema.sql.</p>
-                  <p>3. Copia .env.example a .env.local y rellena las claves.</p>
-                  <p>4. Lanza npm run dev.</p>
+                  <p>{t("rps.setupStep1")}</p>
+                  <p>{t("rps.setupStep2")}</p>
+                  <p>{t("rps.setupStep3")}</p>
+                  <p>{t("rps.setupStep4")}</p>
                 </div>
               </div>
             ) : !roomCode ? (
               <div className="space-y-8">
                 <h2 className="font-[family-name:var(--font-display)] text-2xl">
-                  Crear sala
+                  {t("rps.createRoom")}
                 </h2>
 
                 <div className="grid gap-4 md:grid-cols-[1fr,auto]">
@@ -398,7 +403,7 @@ function RpsRoomContent() {
                       className="glass-tile w-full rounded-2xl px-4 py-3 text-base outline-none transition focus:border-white/20"
                       maxLength={24}
                       onChange={(event) => setNickname(event.target.value)}
-                      placeholder="Tu apodo"
+                      placeholder={t("rps.yourNickname")}
                       value={nickname}
                     />
                   </label>
@@ -409,7 +414,9 @@ function RpsRoomContent() {
                     onClick={handleCreateRoom}
                     type="button"
                   >
-                    {busyAction === "create" ? "Creando..." : "Crear sala"}
+                    {busyAction === "create"
+                      ? t("rps.creating")
+                      : t("rps.createRoom")}
                   </button>
                 </div>
 
@@ -421,14 +428,14 @@ function RpsRoomContent() {
                     className="glass-tile w-full rounded-2xl px-4 py-3 text-base uppercase outline-none transition focus:border-white/20"
                     maxLength={6}
                     onChange={(event) => setManualCode(event.target.value)}
-                    placeholder="Codigo de sala"
+                    placeholder={t("rps.roomCodePlaceholder")}
                     value={manualCode}
                   />
                   <button
                     className="rounded-2xl border border-white/10 px-5 py-3 text-sm font-semibold text-stone-100 transition hover:border-white/20"
                     type="submit"
                   >
-                    Entrar
+                    {t("rps.join")}
                   </button>
                 </form>
               </div>
@@ -436,10 +443,10 @@ function RpsRoomContent() {
               <div className="space-y-8">
                 <div className="space-y-2">
                   <p className="text-xs uppercase tracking-[0.3em] text-stone-500">
-                    Sala {roomCode}
+                    {t("common.room")} {roomCode}
                   </p>
                   <h2 className="font-[family-name:var(--font-display)] text-2xl">
-                    Entrar
+                    {t("rps.join")}
                   </h2>
                 </div>
 
@@ -449,7 +456,7 @@ function RpsRoomContent() {
                       className="glass-tile w-full rounded-2xl px-4 py-3 text-base outline-none transition focus:border-white/20"
                       maxLength={24}
                       onChange={(event) => setNickname(event.target.value)}
-                      placeholder="Tu apodo"
+                      placeholder={t("rps.yourNickname")}
                       value={nickname}
                     />
                   </label>
@@ -460,7 +467,9 @@ function RpsRoomContent() {
                     onClick={handleJoinRoom}
                     type="button"
                   >
-                    {busyAction === "join" ? "Entrando..." : "Entrar a la sala"}
+                    {busyAction === "join"
+                      ? t("rps.entering")
+                      : t("rps.enterRoom")}
                   </button>
                 </div>
               </div>
@@ -480,20 +489,20 @@ function RpsRoomContent() {
                   >
                     <Share2 className="size-4" />
                     {shareState === "shared"
-                      ? "Compartido"
+                      ? t("common.shared")
                       : shareState === "copied"
-                        ? "Copiado"
-                        : "Compartir"}
+                        ? t("common.copied")
+                        : t("common.share")}
                   </button>
                 </div>
 
                 <div className="glass-tile space-y-4 rounded-[24px] p-4">
                   <div className="flex items-center justify-between">
                     <p className="text-xs uppercase tracking-[0.24em] text-stone-500">
-                      Tablero
+                      {t("rps.choose")}
                     </p>
                     <p className="text-sm text-stone-400">
-                      {alreadyPlayed ? "Jugada enviada" : "Listo para elegir"}
+                      {alreadyPlayed ? t("rps.choiceSent") : t("rps.readyToChoose")}
                     </p>
                   </div>
 
@@ -510,9 +519,11 @@ function RpsRoomContent() {
                           onClick={() => handleSubmitMove(option.choice)}
                           type="button"
                         >
-                          <p className="text-lg font-semibold">{option.label}</p>
+                          <p className="text-lg font-semibold">
+                            {choiceLabel(option.choice)}
+                          </p>
                           <p className="mt-1 text-sm text-stone-400">
-                            {option.description}
+                            {t(`rps.choices.${option.choice}.description`)}
                           </p>
                         </button>
                       );
@@ -524,12 +535,14 @@ function RpsRoomContent() {
                       <div className="flex items-center justify-between gap-4">
                         <div>
                           <p className="text-xs uppercase tracking-[0.24em] text-stone-500">
-                            Resultado
+                            {t("rps.result")}
                           </p>
                           <p className="mt-2 text-lg font-semibold text-stone-100">
                             {snapshot.currentRound.winnerPlayerId
-                              ? `${snapshot.currentRound.winnerNickname} gano la ronda`
-                              : "Empate"}
+                              ? t("rps.resultWinner", {
+                                  name: snapshot.currentRound.winnerNickname ?? "",
+                                })
+                              : t("rps.tie")}
                           </p>
                         </div>
 
@@ -541,8 +554,8 @@ function RpsRoomContent() {
                             type="button"
                           >
                             {busyAction === "next-round"
-                              ? "Abriendo..."
-                              : "Siguiente ronda"}
+                              ? t("rps.opening")
+                              : t("rps.nextRound")}
                           </button>
                         ) : null}
                       </div>
@@ -568,8 +581,10 @@ function RpsRoomContent() {
                   {snapshot?.currentRound.status === "pending" ? (
                     <div className="glass-tile rounded-[24px] p-4 text-sm text-stone-400">
                       <p>
-                        Jugadas enviadas: {snapshot.currentRound.submittedCount}/
-                        {snapshot.playerCount}
+                        {t("rps.movesSent", {
+                          count: snapshot.currentRound.submittedCount,
+                          total: snapshot.playerCount,
+                        })}
                       </p>
                     </div>
                   ) : null}
@@ -594,7 +609,7 @@ function RpsRoomContent() {
             <section className="glass-panel rounded-[28px] p-5">
               <div className="flex items-center justify-between">
                 <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">
-                  Jugadores
+                  {t("rps.players")}
                 </p>
                 <p className="text-sm text-stone-400">
                   {snapshot?.playerCount ?? 0}/2
@@ -616,12 +631,12 @@ function RpsRoomContent() {
                             {player.nickname}
                           </p>
                           <p className="text-sm text-stone-400">
-                            {isYou ? "Tu dispositivo" : "Invitado"}
+                            {isYou ? t("rps.yourDevice") : t("rps.guest")}
                           </p>
                         </div>
                         {player.isHost ? (
                           <span className="rounded-full border border-white/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-stone-300">
-                            Host
+                            {t("common.host")}
                           </span>
                         ) : null}
                       </div>
@@ -631,7 +646,7 @@ function RpsRoomContent() {
 
                 {snapshot && snapshot.playerCount < 2 ? (
                   <div className="rounded-2xl border border-dashed border-white/12 px-4 py-5 text-sm text-stone-400">
-                    Esperando al segundo jugador.
+                    {t("rps.waitingSecondPlayer")}
                   </div>
                 ) : null}
               </div>
@@ -641,7 +656,7 @@ function RpsRoomContent() {
           <aside className="space-y-5">
             <section className="glass-panel rounded-[28px] p-5">
               <p className="text-sm text-stone-400">
-                Sala:{" "}
+                {t("common.room")}:{" "}
                 <span className="font-semibold text-stone-100">
                   {(snapshot?.roomCode ?? roomCode) || "----"}
                 </span>
@@ -655,10 +670,12 @@ function RpsRoomContent() {
 }
 
 function RpsRoomFallback() {
+  const { t } = useLanguage();
+
   return (
     <main className="min-h-screen bg-[#020202] px-4 py-8 text-stone-100">
       <div className="glass-panel mx-auto max-w-4xl rounded-[28px] p-6">
-        <p className="text-sm text-stone-300">Cargando sala...</p>
+        <p className="text-sm text-stone-300">{t("common.loadingRoom")}</p>
       </div>
     </main>
   );

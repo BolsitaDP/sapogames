@@ -211,27 +211,8 @@ export async function startNextRound(session: RoomSession) {
 
 export const rpsChoices: Array<{
   choice: RpsChoice;
-  description: string;
-  label: string;
 }> = [
-  {
-    choice: "rock",
-    description: "Gana a tijera",
-    label: "Piedra",
-  },
-  {
-    choice: "paper",
-    description: "Gana a piedra",
-    label: "Papel",
-  },
-  {
-    choice: "scissors",
-    description: "Gana a papel",
-    label: "Tijera",
-  },
+  { choice: "rock" },
+  { choice: "paper" },
+  { choice: "scissors" },
 ];
-
-export function choiceLabel(choice: RpsChoice) {
-  const item = rpsChoices.find((entry) => entry.choice === choice);
-  return item?.label ?? choice;
-}

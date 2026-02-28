@@ -1,21 +1,22 @@
 import type { Metadata } from "next";
 import { Azeret_Mono, Space_Grotesk } from "next/font/google";
 
+import { LanguageProvider } from "@/components/language-provider";
 import "./globals.css";
 
 const displayFont = Space_Grotesk({
   variable: "--font-display",
-  subsets: ["latin"],
+  subsets: [ "latin" ],
 });
 
 const monoFont = Azeret_Mono({
   variable: "--font-mono",
-  subsets: ["latin"],
+  subsets: [ "latin" ],
 });
 
 export const metadata: Metadata = {
-  title: "Sapo Games",
-  description: "Arcade minimo para jugar minijuegos rapidos con amigos.",
+  title: "Sapos",
+  description: "WIP",
 };
 
 export default function RootLayout({
@@ -26,7 +27,7 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body className={`${displayFont.variable} ${monoFont.variable} antialiased`}>
-        {children}
+        <LanguageProvider>{children}</LanguageProvider>
       </body>
     </html>
   );
