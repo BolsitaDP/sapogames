@@ -5,11 +5,11 @@ export const languages = [
   { label: "English", value: "en" },
 ] as const;
 
-export type Language = (typeof languages)[ number ][ "value" ];
+export type Language = (typeof languages)[number]["value"];
 
 type DictionaryValue = string | Dictionary;
 type Dictionary = {
-  [ key: string ]: DictionaryValue;
+  [key: string]: DictionaryValue;
 };
 
 export const dictionaries: Record<Language, Dictionary> = {
@@ -17,11 +17,12 @@ export const dictionaries: Record<Language, Dictionary> = {
     common: {
       appName: "Sapo Games",
       menu: "Menu",
-      back: "Atrás",
-      settings: "Configuración",
+      back: "Atras",
+      close: "Cerrar",
+      settings: "Configuracion",
       searchGames: "Buscar juegos",
       live: "En vivo",
-      soon: "Próximamente",
+      soon: "Proximamente",
       loadingRoom: "Cargando sala...",
       host: "Host",
       shared: "Compartido",
@@ -31,23 +32,23 @@ export const dictionaries: Record<Language, Dictionary> = {
       room: "Sala",
     },
     settings: {
-      title: "Configuración",
+      title: "Configuracion",
       language: "Idioma",
-      languageSelection: "Selección de idioma",
+      languageSelection: "Seleccion de idioma",
     },
     games: {
       rps: {
         title: "Piedra, papel o tijera",
       },
       guess: {
-        title: "Adivina el número",
+        title: "Adivina el numero",
       },
       memory: {
-        title: "Memoria relámpago",
+        title: "Memoria relampago",
       },
     },
     rps: {
-      pendingConfig: "Configuración pendiente",
+      pendingConfig: "Configuracion pendiente",
       connectSupabase: "Conecta Supabase para habilitar las salas.",
       missingSupabase:
         "Falta definir NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY. El proyecto ya incluye el SQL y el workflow para Pages.",
@@ -58,9 +59,9 @@ export const dictionaries: Record<Language, Dictionary> = {
       createRoom: "Crear sala",
       creating: "Creando...",
       yourNickname: "Tu apodo",
-      roomCodePlaceholder: "ódigo de sala",
-      roomCodeMissing: "Falta el código de la sala.",
-      invalidRoomCode: "Escribe un código válido.",
+      roomCodePlaceholder: "Codigo de sala",
+      roomCodeMissing: "Falta el codigo de la sala.",
+      invalidRoomCode: "Escribe un codigo valido.",
       enterRoom: "Entrar a la sala",
       entering: "Entrando...",
       join: "Entrar",
@@ -69,6 +70,7 @@ export const dictionaries: Record<Language, Dictionary> = {
       choiceSent: "Jugada enviada",
       readyToChoose: "Listo para elegir",
       players: "Jugadores",
+      score: "Marcador",
       waitingSecondPlayer: "Esperando al segundo jugador.",
       yourDevice: "Tu dispositivo",
       guest: "Invitado",
@@ -91,7 +93,7 @@ export const dictionaries: Record<Language, Dictionary> = {
       nicknameBeforeCreate: "Pon tu apodo antes de crear la sala.",
       nicknameBeforeJoin: "Pon tu apodo para entrar.",
       shareText: "Entra a la sala y juguemos piedra, papel o tijera.",
-      resultWinner: "{{name}} ganó la ronda",
+      resultWinner: "{{name}} gano la ronda",
       choices: {
         rock: {
           label: "Piedra",
@@ -113,6 +115,7 @@ export const dictionaries: Record<Language, Dictionary> = {
       appName: "Sapo Games",
       menu: "Menu",
       back: "Back",
+      close: "Close",
       settings: "Settings",
       searchGames: "Search games",
       live: "Live",
@@ -164,6 +167,7 @@ export const dictionaries: Record<Language, Dictionary> = {
       choiceSent: "Move sent",
       readyToChoose: "Ready to choose",
       players: "Players",
+      score: "Score",
       waitingSecondPlayer: "Waiting for the second player.",
       yourDevice: "Your device",
       guest: "Guest",
@@ -206,13 +210,15 @@ export const dictionaries: Record<Language, Dictionary> = {
 };
 
 function getNestedValue(dictionary: Dictionary, path: string): string | undefined {
-  const value = path.split(".").reduce<DictionaryValue | undefined>((current, part) => {
-    if (!current || typeof current === "string") {
-      return undefined;
-    }
+  const value = path
+    .split(".")
+    .reduce<DictionaryValue | undefined>((current, part) => {
+      if (!current || typeof current === "string") {
+        return undefined;
+      }
 
-    return current[ part ];
-  }, dictionary);
+      return current[part];
+    }, dictionary);
 
   return typeof value === "string" ? value : undefined;
 }
@@ -223,7 +229,7 @@ export function translate(
   variables?: Record<string, string | number>,
 ) {
   const template =
-    getNestedValue(dictionaries[ language ], key) ??
+    getNestedValue(dictionaries[language], key) ??
     getNestedValue(dictionaries.es, key) ??
     key;
 
@@ -232,6 +238,6 @@ export function translate(
   }
 
   return template.replace(/\{\{(\w+)\}\}/g, (_, variableName: string) => {
-    return String(variables[ variableName ] ?? "");
+    return String(variables[variableName] ?? "");
   });
 }

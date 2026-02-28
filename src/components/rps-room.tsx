@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Share2 } from "lucide-react";
+import { Share2, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Suspense,
@@ -13,6 +13,14 @@ import {
 } from "react";
 
 import { useLanguage } from "@/components/language-provider";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   createRoom,
   getRoomSnapshot,
@@ -59,6 +67,10 @@ function RpsRoomContent() {
   const [error, setError] = useState<string | null>(null);
   const [shareState, setShareState] = useState<"idle" | "copied" | "shared">(
     "idle",
+  );
+  const [resultDialogOpen, setResultDialogOpen] = useState(false);
+  const [seenRevealedRoundId, setSeenRevealedRoundId] = useState<string | null>(
+    null,
   );
 
   async function loadSnapshot(code: string) {
@@ -170,6 +182,24 @@ function RpsRoomContent() {
     };
   }, [roomCode, snapshot?.roomId]);
 
+  useEffect(() => {
+    if (!snapshot) {
+      return;
+    }
+
+    if (
+      snapshot.currentRound.status === "revealed" &&
+      snapshot.currentRound.id !== seenRevealedRoundId
+    ) {
+      setResultDialogOpen(true);
+      setSeenRevealedRoundId(snapshot.currentRound.id);
+    }
+
+    if (snapshot.currentRound.status === "pending") {
+      setResultDialogOpen(false);
+    }
+  }, [seenRevealedRoundId, snapshot]);
+
   async function handleCreateRoom() {
     const trimmedName = nickname.trim();
 
@@ -228,7 +258,7 @@ function RpsRoomContent() {
       saveNickname(trimmedName);
       saveRoomSession(nextSession);
       setSession(nextSession);
-      setFeedback(t("rps.joinedRoom"));
+      setFeedback(null);
       await loadSnapshot(nextSession.roomCode);
     } catch (joinError) {
       setError(
@@ -253,11 +283,7 @@ function RpsRoomContent() {
 
     try {
       await submitMove(session, choice);
-      setFeedback(
-        t("rps.moveSubmitted", {
-          choice: choiceLabel(choice),
-        }),
-      );
+      setFeedback(null);
       await loadSnapshot(session.roomCode);
     } catch (moveError) {
       setError(
@@ -282,7 +308,7 @@ function RpsRoomContent() {
 
     try {
       await startNextRound(session);
-      setFeedback(t("rps.nextRoundReady"));
+      setFeedback(null);
       await loadSnapshot(session.roomCode);
     } catch (roundError) {
       setError(
@@ -371,7 +397,7 @@ function RpsRoomContent() {
           </div>
         </header>
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_280px_220px]">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
           <section className="glass-panel rounded-[28px] p-5 sm:p-6">
             {!isSupabaseConfigured() ? (
               <div className="space-y-4">
@@ -502,7 +528,7 @@ function RpsRoomContent() {
                       {t("rps.choose")}
                     </p>
                     <p className="text-sm text-stone-400">
-                      {alreadyPlayed ? t("rps.choiceSent") : t("rps.readyToChoose")}
+                      {snapshot?.currentRound.submittedCount ?? 0}/{snapshot?.playerCount ?? 0}
                     </p>
                   </div>
 
@@ -530,64 +556,6 @@ function RpsRoomContent() {
                     })}
                   </div>
 
-                  {snapshot?.currentRound.status === "revealed" ? (
-                    <div className="glass-tile space-y-3 rounded-[24px] p-4">
-                      <div className="flex items-center justify-between gap-4">
-                        <div>
-                          <p className="text-xs uppercase tracking-[0.24em] text-stone-500">
-                            {t("rps.result")}
-                          </p>
-                          <p className="mt-2 text-lg font-semibold text-stone-100">
-                            {snapshot.currentRound.winnerPlayerId
-                              ? t("rps.resultWinner", {
-                                  name: snapshot.currentRound.winnerNickname ?? "",
-                                })
-                              : t("rps.tie")}
-                          </p>
-                        </div>
-
-                        {canStartNewRound ? (
-                          <button
-                            className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-stone-100 transition hover:border-white/20"
-                            disabled={busyAction === "next-round"}
-                            onClick={handleNextRound}
-                            type="button"
-                          >
-                            {busyAction === "next-round"
-                              ? t("rps.opening")
-                              : t("rps.nextRound")}
-                          </button>
-                        ) : null}
-                      </div>
-
-                      <div className="grid gap-3 md:grid-cols-2">
-                        {snapshot.currentRound.revealedMoves.map((move) => (
-                          <div
-                            key={move.playerId}
-                            className="glass-tile rounded-2xl px-4 py-3"
-                          >
-                            <p className="text-sm text-stone-400">
-                              {move.nickname}
-                            </p>
-                            <p className="mt-1 text-lg font-semibold text-stone-50">
-                              {choiceLabel(move.choice)}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {snapshot?.currentRound.status === "pending" ? (
-                    <div className="glass-tile rounded-[24px] p-4 text-sm text-stone-400">
-                      <p>
-                        {t("rps.movesSent", {
-                          count: snapshot.currentRound.submittedCount,
-                          total: snapshot.playerCount,
-                        })}
-                      </p>
-                    </div>
-                  ) : null}
                 </div>
               </div>
             )}
@@ -634,11 +602,16 @@ function RpsRoomContent() {
                             {isYou ? t("rps.yourDevice") : t("rps.guest")}
                           </p>
                         </div>
-                        {player.isHost ? (
+                        <div className="flex items-center gap-2">
                           <span className="rounded-full border border-white/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-stone-300">
-                            {t("common.host")}
+                            {t("rps.score")} {(player.score ?? 0).toString()}
                           </span>
-                        ) : null}
+                          {player.isHost ? (
+                            <span className="rounded-full border border-white/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-stone-300">
+                              {t("common.host")}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
                   );
@@ -651,9 +624,6 @@ function RpsRoomContent() {
                 ) : null}
               </div>
             </section>
-          </aside>
-
-          <aside className="space-y-5">
             <section className="glass-panel rounded-[28px] p-5">
               <p className="text-sm text-stone-400">
                 {t("common.room")}:{" "}
@@ -665,6 +635,61 @@ function RpsRoomContent() {
           </aside>
         </div>
       </div>
+
+      <Dialog onOpenChange={setResultDialogOpen} open={resultDialogOpen}>
+        <DialogContent>
+          <div className="flex items-start justify-between gap-4">
+            <DialogHeader>
+              <DialogTitle>{t("rps.result")}</DialogTitle>
+              <DialogDescription>
+                {snapshot?.currentRound.winnerPlayerId
+                  ? t("rps.resultWinner", {
+                      name: snapshot.currentRound.winnerNickname ?? "",
+                    })
+                  : t("rps.tie")}
+              </DialogDescription>
+            </DialogHeader>
+
+            <button
+              aria-label={t("common.close")}
+              className="inline-flex size-10 items-center justify-center rounded-full border border-white/10 text-stone-300 transition hover:border-white/20 hover:text-stone-100"
+              onClick={() => setResultDialogOpen(false)}
+              type="button"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {snapshot?.currentRound.revealedMoves.map((move) => (
+              <div
+                key={move.playerId}
+                className="glass-tile rounded-2xl px-4 py-3"
+              >
+                <p className="text-sm text-stone-400">{move.nickname}</p>
+                <p className="mt-1 text-lg font-semibold text-stone-50">
+                  {choiceLabel(move.choice)}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <DialogFooter>
+            {canStartNewRound ? (
+              <button
+                className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-stone-100 transition hover:border-white/20"
+                disabled={busyAction === "next-round"}
+                onClick={handleNextRound}
+                type="button"
+              >
+                {busyAction === "next-round"
+                  ? t("rps.opening")
+                  : t("rps.nextRound")}
+              </button>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }

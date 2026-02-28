@@ -4,7 +4,7 @@ import {
   createContext,
   useContext,
   useEffect,
-  useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 
@@ -22,7 +22,7 @@ type LanguageContextValue = {
 
 const LanguageContext = createContext<LanguageContextValue | null>(null);
 
-function getInitialLanguage(): Language {
+function getSnapshot(): Language {
   if (typeof window === "undefined") {
     return "es";
   }
@@ -32,35 +32,61 @@ function getInitialLanguage(): Language {
   return savedLanguage === "en" ? "en" : "es";
 }
 
+function getServerSnapshot(): Language {
+  return "es";
+}
+
+function subscribe(onStoreChange: () => void) {
+  if (typeof window === "undefined") {
+    return () => undefined;
+  }
+
+  function handleStorage(event: StorageEvent) {
+    if (event.key && event.key !== LANGUAGE_STORAGE_KEY) {
+      return;
+    }
+
+    onStoreChange();
+  }
+
+  function handleLanguageChange() {
+    onStoreChange();
+  }
+
+  window.addEventListener("storage", handleStorage);
+  window.addEventListener("sapogames-language-change", handleLanguageChange);
+
+  return () => {
+    window.removeEventListener("storage", handleStorage);
+    window.removeEventListener(
+      "sapogames-language-change",
+      handleLanguageChange,
+    );
+  };
+}
+
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [language, setLanguageState] = useState<Language>(getInitialLanguage);
+  const language = useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    getServerSnapshot,
+  );
 
   useEffect(() => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
     document.documentElement.lang = language;
   }, [language]);
 
-  useEffect(() => {
-    function handleStorage(event: StorageEvent) {
-      if (event.key !== LANGUAGE_STORAGE_KEY) {
-        return;
-      }
-
-      setLanguageState(event.newValue === "en" ? "en" : "es");
-    }
-
-    window.addEventListener("storage", handleStorage);
-
-    return () => {
-      window.removeEventListener("storage", handleStorage);
-    };
-  }, []);
+  function setLanguage(nextLanguage: Language) {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLanguage);
+    window.dispatchEvent(new Event("sapogames-language-change"));
+  }
 
   return (
     <LanguageContext.Provider
       value={{
         language,
-        setLanguage: setLanguageState,
+        setLanguage,
         t: (key, variables) => translate(language, key, variables),
       }}
     >

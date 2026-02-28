@@ -464,7 +464,13 @@ begin
           'id', p.id,
           'nickname', p.nickname,
           'isHost', p.is_host,
-          'joinedAt', p.joined_at
+          'joinedAt', p.joined_at,
+          'score', (
+            select count(*)
+            from public.rps_rounds rr
+            where rr.room_id = v_room.id
+              and rr.winner_player_id = p.id
+          )
         )
         order by p.joined_at asc
       )

@@ -14,6 +14,7 @@ export type RpsPlayer = {
   isHost: boolean;
   joinedAt: string;
   nickname: string;
+  score?: number;
 };
 
 export type RevealedMove = {
