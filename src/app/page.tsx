@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Search } from "lucide-react";
+import { Search, Settings } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,15 +19,32 @@ export default function Home() {
             </h1>
           </div>
 
-          <Button
-            aria-label="Buscar juegos"
-            className="shrink-0"
-            size="icon"
-            type="button"
-            variant="ghost"
-          >
-            <Search className="size-4" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              aria-label="Buscar juegos"
+              className="shrink-0"
+              size="icon"
+              type="button"
+              variant="ghost"
+            >
+              <Search className="size-4" />
+            </Button>
+
+            <Link
+              aria-label="Configuracion"
+              className="inline-flex"
+              href="/settings/"
+            >
+              <Button
+                className="shrink-0"
+                size="icon"
+                type="button"
+                variant="ghost"
+              >
+                <Settings className="size-4" />
+              </Button>
+            </Link>
+          </div>
         </header>
 
         <section className="mt-8 grid flex-1 grid-cols-1 gap-4 sm:grid-cols-2">

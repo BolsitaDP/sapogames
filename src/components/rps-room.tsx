@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Share2 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Suspense,
@@ -43,41 +44,6 @@ function buildShareUrl(roomCode: string) {
   const url = new URL(window.location.href);
   url.searchParams.set("room", roomCode);
   return url.toString();
-}
-
-function statusCopy(snapshot: RpsSnapshot | null, session: RoomSession | null) {
-  if (!snapshot) {
-    return "Prepara una sala para arrancar.";
-  }
-
-  if (snapshot.playerCount < 2) {
-    return "Comparte el link. En cuanto entre tu amigo, la ronda queda lista.";
-  }
-
-  if (!session) {
-    return "Entra a la sala con tu apodo para jugar.";
-  }
-
-  const round = snapshot.currentRound;
-  const alreadyPlayed = round.submittedPlayerIds.includes(session.playerId);
-
-  if (round.status === "pending" && !alreadyPlayed) {
-    return "Elige rapido. La jugada se revela cuando ambos hayan enviado la suya.";
-  }
-
-  if (round.status === "pending" && alreadyPlayed) {
-    return "Tu jugada ya esta enviada. Falta que responda el otro jugador.";
-  }
-
-  if (!round.winnerPlayerId) {
-    return "Empate. Pueden abrir otra ronda cuando quieran.";
-  }
-
-  if (round.winnerPlayerId === session.playerId) {
-    return "Ganaste la ronda.";
-  }
-
-  return `${round.winnerNickname ?? "Tu rival"} gano la ronda.`;
 }
 
 function RpsRoomContent() {
@@ -224,7 +190,7 @@ function RpsRoomContent() {
       saveRoomSession(nextSession);
       setSession(nextSession);
       setShareState("idle");
-      setFeedback("Sala creada. Comparte el link y espera al segundo jugador.");
+      setFeedback(null);
 
       startTransition(() => {
         router.replace(`${pathname}?room=${nextSession.roomCode}`);
@@ -369,7 +335,6 @@ function RpsRoomContent() {
   const alreadyPlayed =
     !!session &&
     !!snapshot?.currentRound.submittedPlayerIds.includes(session.playerId);
-  const liveStatus = statusCopy(snapshot, session);
   const canPlay =
     !!session &&
     !!snapshot &&
@@ -385,36 +350,21 @@ function RpsRoomContent() {
     <main className="min-h-screen bg-[#020202] px-4 py-6 text-stone-100 sm:px-6 lg:px-8">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
         <header className="glass-panel rounded-[28px] p-5 sm:p-6">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-            <div className="space-y-3">
-              <Link
-                href="/"
-                className="inline-flex rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-stone-400 transition hover:border-white/20 hover:text-stone-200"
-              >
-                Menu
-              </Link>
-              <div className="space-y-2">
-                <p className="text-[11px] uppercase tracking-[0.3em] text-stone-500">
-                  {liveGame?.eyebrow ?? "Juego"}
-                </p>
-                <h1 className="font-[family-name:var(--font-display)] text-3xl leading-none sm:text-4xl">
-                  {liveGame?.title}
-                </h1>
-              </div>
-            </div>
+          <div className="flex items-center justify-between gap-4">
+            <Link
+              href="/"
+              className="inline-flex rounded-full border border-white/10 px-4 py-2 text-sm text-stone-300 transition hover:border-white/20 hover:text-stone-100"
+            >
+              Atras
+            </Link>
 
-            <div className="flex flex-wrap gap-2 text-sm text-stone-400">
-              <span className="rounded-full border border-white/8 px-3 py-2">
-                Sala por link
-              </span>
-              <span className="rounded-full border border-white/8 px-3 py-2">
-                2 jugadores
-              </span>
-            </div>
+            <h1 className="text-right font-[family-name:var(--font-display)] text-2xl leading-none text-stone-100 sm:text-3xl">
+              {liveGame?.title}
+            </h1>
           </div>
         </header>
 
-        <div className="grid gap-5 lg:grid-cols-[1fr,320px]">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_280px_220px]">
           <section className="glass-panel rounded-[28px] p-5 sm:p-6">
             {!isSupabaseConfigured() ? (
               <div className="space-y-4">
@@ -516,167 +466,113 @@ function RpsRoomContent() {
               </div>
             ) : (
               <div className="space-y-8">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="flex items-center justify-between gap-4">
                   <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-[0.3em] text-stone-500">
-                      Sala {snapshot?.roomCode ?? roomCode}
-                    </p>
                     <h2 className="font-[family-name:var(--font-display)] text-2xl">
                       Ronda {snapshot?.currentRound.roundNumber ?? 1}
                     </h2>
-                    <p className="max-w-xl text-sm leading-6 text-stone-400">
-                      {liveStatus}
+                  </div>
+
+                  <button
+                    className="inline-flex items-center gap-2 rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-stone-100 transition hover:border-white/20"
+                    onClick={handleShare}
+                    type="button"
+                  >
+                    <Share2 className="size-4" />
+                    {shareState === "shared"
+                      ? "Compartido"
+                      : shareState === "copied"
+                        ? "Copiado"
+                        : "Compartir"}
+                  </button>
+                </div>
+
+                <div className="glass-tile space-y-4 rounded-[24px] p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs uppercase tracking-[0.24em] text-stone-500">
+                      Tablero
+                    </p>
+                    <p className="text-sm text-stone-400">
+                      {alreadyPlayed ? "Jugada enviada" : "Listo para elegir"}
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-stone-100 transition hover:border-white/20"
-                      onClick={handleShare}
-                      type="button"
-                    >
-                      {shareState === "shared"
-                        ? "Compartido"
-                        : shareState === "copied"
-                          ? "Link copiado"
-                          : "Compartir link"}
-                    </button>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {rpsChoices.map((option) => {
+                      const disabled =
+                        !canPlay || alreadyPlayed || busyAction === option.choice;
+
+                      return (
+                        <button
+                          key={option.choice}
+                          className="glass-tile rounded-[24px] p-4 text-left transition hover:border-white/20 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
+                          disabled={disabled}
+                          onClick={() => handleSubmitMove(option.choice)}
+                          type="button"
+                        >
+                          <p className="text-lg font-semibold">{option.label}</p>
+                          <p className="mt-1 text-sm text-stone-400">
+                            {option.description}
+                          </p>
+                        </button>
+                      );
+                    })}
                   </div>
-                </div>
 
-                <div className="grid gap-4 lg:grid-cols-[0.95fr,1.05fr]">
-                  <div className="glass-tile space-y-4 rounded-[24px] p-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs uppercase tracking-[0.24em] text-stone-500">
-                        Jugadores
-                      </p>
-                      <p className="text-sm text-stone-400">
-                        {snapshot?.playerCount ?? 0}/2
-                      </p>
-                    </div>
-
-                    <div className="space-y-3">
-                      {snapshot?.players.map((player) => {
-                        const isYou = player.id === session.playerId;
-                        return (
-                          <div
-                            key={player.id}
-                            className="glass-tile rounded-2xl px-4 py-3"
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <div>
-                                <p className="font-medium text-stone-100">
-                                  {player.nickname}
-                                </p>
-                                <p className="text-sm text-stone-400">
-                                  {isYou ? "Tu dispositivo" : "Invitado"}
-                                </p>
-                              </div>
-                              {player.isHost ? (
-                                <span className="rounded-full border border-white/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-stone-300">
-                                  Host
-                                </span>
-                              ) : null}
-                            </div>
-                          </div>
-                        );
-                      })}
-
-                      {snapshot && snapshot.playerCount < 2 ? (
-                        <div className="rounded-2xl border border-dashed border-white/12 px-4 py-5 text-sm text-stone-400">
-                          Esperando al segundo jugador.
+                  {snapshot?.currentRound.status === "revealed" ? (
+                    <div className="glass-tile space-y-3 rounded-[24px] p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.24em] text-stone-500">
+                            Resultado
+                          </p>
+                          <p className="mt-2 text-lg font-semibold text-stone-100">
+                            {snapshot.currentRound.winnerPlayerId
+                              ? `${snapshot.currentRound.winnerNickname} gano la ronda`
+                              : "Empate"}
+                          </p>
                         </div>
-                      ) : null}
-                    </div>
-                  </div>
 
-                  <div className="glass-tile space-y-4 rounded-[24px] p-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs uppercase tracking-[0.24em] text-stone-500">
-                        Tablero
-                      </p>
-                      <p className="text-sm text-stone-400">
-                        {alreadyPlayed ? "Jugada enviada" : "Listo para elegir"}
-                      </p>
-                    </div>
-
-                    <div className="grid gap-3 md:grid-cols-3">
-                      {rpsChoices.map((option) => {
-                        const disabled =
-                          !canPlay || alreadyPlayed || busyAction === option.choice;
-
-                        return (
+                        {canStartNewRound ? (
                           <button
-                            key={option.choice}
-                            className="glass-tile rounded-[24px] p-4 text-left transition hover:border-white/20 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
-                            disabled={disabled}
-                            onClick={() => handleSubmitMove(option.choice)}
+                            className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-stone-100 transition hover:border-white/20"
+                            disabled={busyAction === "next-round"}
+                            onClick={handleNextRound}
                             type="button"
                           >
-                            <p className="text-lg font-semibold">{option.label}</p>
-                            <p className="mt-1 text-sm text-stone-400">
-                              {option.description}
-                            </p>
+                            {busyAction === "next-round"
+                              ? "Abriendo..."
+                              : "Siguiente ronda"}
                           </button>
-                        );
-                      })}
-                    </div>
+                        ) : null}
+                      </div>
 
-                    {snapshot?.currentRound.status === "revealed" ? (
-                      <div className="glass-tile space-y-3 rounded-[24px] p-4">
-                        <div className="flex items-center justify-between gap-4">
-                          <div>
-                            <p className="text-xs uppercase tracking-[0.24em] text-stone-500">
-                              Resultado
+                      <div className="grid gap-3 md:grid-cols-2">
+                        {snapshot.currentRound.revealedMoves.map((move) => (
+                          <div
+                            key={move.playerId}
+                            className="glass-tile rounded-2xl px-4 py-3"
+                          >
+                            <p className="text-sm text-stone-400">
+                              {move.nickname}
                             </p>
-                            <p className="mt-2 text-lg font-semibold text-stone-100">
-                              {snapshot.currentRound.winnerPlayerId
-                                ? `${snapshot.currentRound.winnerNickname} gano la ronda`
-                                : "Empate"}
+                            <p className="mt-1 text-lg font-semibold text-stone-50">
+                              {choiceLabel(move.choice)}
                             </p>
                           </div>
-
-                          {canStartNewRound ? (
-                            <button
-                              className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-stone-100 transition hover:border-white/20"
-                              disabled={busyAction === "next-round"}
-                              onClick={handleNextRound}
-                              type="button"
-                            >
-                              {busyAction === "next-round"
-                                ? "Abriendo..."
-                                : "Siguiente ronda"}
-                            </button>
-                          ) : null}
-                        </div>
-
-                        <div className="grid gap-3 md:grid-cols-2">
-                          {snapshot.currentRound.revealedMoves.map((move) => (
-                            <div
-                              key={move.playerId}
-                              className="glass-tile rounded-2xl px-4 py-3"
-                            >
-                              <p className="text-sm text-stone-400">
-                                {move.nickname}
-                              </p>
-                              <p className="mt-1 text-lg font-semibold text-stone-50">
-                                {choiceLabel(move.choice)}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
+                        ))}
                       </div>
-                    ) : null}
+                    </div>
+                  ) : null}
 
-                    {snapshot?.currentRound.status === "pending" ? (
-                      <div className="glass-tile rounded-[24px] p-4 text-sm text-stone-400">
-                        <p>
-                          Jugadas enviadas: {snapshot.currentRound.submittedCount}/
-                          {snapshot.playerCount}
-                        </p>
-                      </div>
-                    ) : null}
-                  </div>
+                  {snapshot?.currentRound.status === "pending" ? (
+                    <div className="glass-tile rounded-[24px] p-4 text-sm text-stone-400">
+                      <p>
+                        Jugadas enviadas: {snapshot.currentRound.submittedCount}/
+                        {snapshot.playerCount}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             )}
@@ -696,21 +592,60 @@ function RpsRoomContent() {
 
           <aside className="space-y-5">
             <section className="glass-panel rounded-[28px] p-5">
-              <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">
-                Sala
-              </p>
-              <div className="mt-4 space-y-3">
-                <div className="glass-tile rounded-2xl px-4 py-3">
-                  <p className="text-xs text-stone-500">Codigo</p>
-                  <p className="mt-1 text-xl font-semibold text-stone-100">
-                    {(snapshot?.roomCode ?? roomCode) || "----"}
-                  </p>
-                </div>
-                <div className="glass-tile rounded-2xl px-4 py-3">
-                  <p className="text-xs text-stone-500">Estado</p>
-                  <p className="mt-1 text-sm text-stone-300">{liveStatus}</p>
-                </div>
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">
+                  Jugadores
+                </p>
+                <p className="text-sm text-stone-400">
+                  {snapshot?.playerCount ?? 0}/2
+                </p>
               </div>
+
+              <div className="mt-4 space-y-3">
+                {snapshot?.players.map((player) => {
+                  const isYou = player.id === session?.playerId;
+
+                  return (
+                    <div
+                      key={player.id}
+                      className="glass-tile rounded-2xl px-4 py-3"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="font-medium text-stone-100">
+                            {player.nickname}
+                          </p>
+                          <p className="text-sm text-stone-400">
+                            {isYou ? "Tu dispositivo" : "Invitado"}
+                          </p>
+                        </div>
+                        {player.isHost ? (
+                          <span className="rounded-full border border-white/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-stone-300">
+                            Host
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {snapshot && snapshot.playerCount < 2 ? (
+                  <div className="rounded-2xl border border-dashed border-white/12 px-4 py-5 text-sm text-stone-400">
+                    Esperando al segundo jugador.
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          </aside>
+
+          <aside className="space-y-5">
+            <section className="glass-panel rounded-[28px] p-5">
+              <p className="text-sm text-stone-400">
+                Sala:{" "}
+                <span className="font-semibold text-stone-100">
+                  {(snapshot?.roomCode ?? roomCode) || "----"}
+                </span>
+              </p>
             </section>
           </aside>
         </div>
