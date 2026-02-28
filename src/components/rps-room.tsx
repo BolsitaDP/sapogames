@@ -382,9 +382,9 @@ function RpsRoomContent() {
     snapshot.currentRound.status === "revealed";
 
   return (
-    <main className="min-h-screen bg-[#050816] px-4 py-6 text-stone-100 sm:px-6 lg:px-8">
+    <main className="min-h-screen bg-[#020202] px-4 py-6 text-stone-100 sm:px-6 lg:px-8">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
-        <header className="rounded-[28px] border border-white/8 bg-black/30 p-5 backdrop-blur sm:p-6">
+        <header className="glass-panel rounded-[28px] p-5 sm:p-6">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-3">
               <Link
@@ -415,7 +415,7 @@ function RpsRoomContent() {
         </header>
 
         <div className="grid gap-5 lg:grid-cols-[1fr,320px]">
-          <section className="rounded-[28px] border border-white/8 bg-black/30 p-5 shadow-[0_20px_80px_rgba(0,0,0,0.4)] backdrop-blur sm:p-6">
+          <section className="glass-panel rounded-[28px] p-5 sm:p-6">
             {!isSupabaseConfigured() ? (
               <div className="space-y-4">
                 <p className="text-sm uppercase tracking-[0.3em] text-stone-500">
@@ -429,7 +429,7 @@ function RpsRoomContent() {
                   NEXT_PUBLIC_SUPABASE_ANON_KEY. El proyecto ya incluye el SQL y
                   el workflow para Pages.
                 </p>
-                <div className="rounded-[28px] border border-white/10 bg-black/20 p-4 text-sm text-stone-300">
+                <div className="glass-tile rounded-[28px] p-4 text-sm text-stone-300">
                   <p>1. Crea el proyecto en Supabase.</p>
                   <p>2. Ejecuta supabase/schema.sql.</p>
                   <p>3. Copia .env.example a .env.local y rellena las claves.</p>
@@ -445,7 +445,7 @@ function RpsRoomContent() {
                 <div className="grid gap-4 md:grid-cols-[1fr,auto]">
                   <label className="space-y-2">
                     <input
-                      className="w-full rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-base outline-none transition focus:border-white/20"
+                      className="glass-tile w-full rounded-2xl px-4 py-3 text-base outline-none transition focus:border-white/20"
                       maxLength={24}
                       onChange={(event) => setNickname(event.target.value)}
                       placeholder="Tu apodo"
@@ -464,11 +464,11 @@ function RpsRoomContent() {
                 </div>
 
                 <form
-                  className="space-y-4 rounded-[24px] border border-white/8 bg-white/[0.02] p-4"
+                  className="glass-tile space-y-4 rounded-[24px] p-4"
                   onSubmit={handleManualJoinSubmit}
                 >
                   <input
-                    className="w-full rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-base uppercase outline-none transition focus:border-white/20"
+                    className="glass-tile w-full rounded-2xl px-4 py-3 text-base uppercase outline-none transition focus:border-white/20"
                     maxLength={6}
                     onChange={(event) => setManualCode(event.target.value)}
                     placeholder="Codigo de sala"
@@ -496,7 +496,7 @@ function RpsRoomContent() {
                 <div className="grid gap-4 md:grid-cols-[1fr,auto]">
                   <label className="space-y-2">
                     <input
-                      className="w-full rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-base outline-none transition focus:border-white/20"
+                      className="glass-tile w-full rounded-2xl px-4 py-3 text-base outline-none transition focus:border-white/20"
                       maxLength={24}
                       onChange={(event) => setNickname(event.target.value)}
                       placeholder="Tu apodo"
@@ -545,7 +545,7 @@ function RpsRoomContent() {
                 </div>
 
                 <div className="grid gap-4 lg:grid-cols-[0.95fr,1.05fr]">
-                  <div className="space-y-4 rounded-[24px] border border-white/8 bg-white/[0.02] p-4">
+                  <div className="glass-tile space-y-4 rounded-[24px] p-4">
                     <div className="flex items-center justify-between">
                       <p className="text-xs uppercase tracking-[0.24em] text-stone-500">
                         Jugadores
@@ -561,7 +561,7 @@ function RpsRoomContent() {
                         return (
                           <div
                             key={player.id}
-                            className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3"
+                            className="glass-tile rounded-2xl px-4 py-3"
                           >
                             <div className="flex items-center justify-between gap-3">
                               <div>
@@ -590,7 +590,7 @@ function RpsRoomContent() {
                     </div>
                   </div>
 
-                  <div className="space-y-4 rounded-[24px] border border-white/8 bg-white/[0.02] p-4">
+                  <div className="glass-tile space-y-4 rounded-[24px] p-4">
                     <div className="flex items-center justify-between">
                       <p className="text-xs uppercase tracking-[0.24em] text-stone-500">
                         Tablero
@@ -608,7 +608,7 @@ function RpsRoomContent() {
                         return (
                           <button
                             key={option.choice}
-                            className="rounded-[24px] border border-white/8 bg-black/20 p-4 text-left transition hover:border-white/20 hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-40"
+                            className="glass-tile rounded-[24px] p-4 text-left transition hover:border-white/20 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
                             disabled={disabled}
                             onClick={() => handleSubmitMove(option.choice)}
                             type="button"
@@ -623,7 +623,7 @@ function RpsRoomContent() {
                     </div>
 
                     {snapshot?.currentRound.status === "revealed" ? (
-                      <div className="space-y-3 rounded-[24px] border border-white/8 bg-black/20 p-4">
+                      <div className="glass-tile space-y-3 rounded-[24px] p-4">
                         <div className="flex items-center justify-between gap-4">
                           <div>
                             <p className="text-xs uppercase tracking-[0.24em] text-stone-500">
@@ -654,7 +654,7 @@ function RpsRoomContent() {
                           {snapshot.currentRound.revealedMoves.map((move) => (
                             <div
                               key={move.playerId}
-                              className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3"
+                              className="glass-tile rounded-2xl px-4 py-3"
                             >
                               <p className="text-sm text-stone-400">
                                 {move.nickname}
@@ -669,7 +669,7 @@ function RpsRoomContent() {
                     ) : null}
 
                     {snapshot?.currentRound.status === "pending" ? (
-                      <div className="rounded-[24px] border border-white/8 bg-black/20 p-4 text-sm text-stone-400">
+                      <div className="glass-tile rounded-[24px] p-4 text-sm text-stone-400">
                         <p>
                           Jugadas enviadas: {snapshot.currentRound.submittedCount}/
                           {snapshot.playerCount}
@@ -695,44 +695,21 @@ function RpsRoomContent() {
           </section>
 
           <aside className="space-y-5">
-            <section className="rounded-[28px] border border-white/8 bg-black/30 p-5 backdrop-blur">
+            <section className="glass-panel rounded-[28px] p-5">
               <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">
                 Sala
               </p>
               <div className="mt-4 space-y-3">
-                <div className="rounded-2xl border border-white/8 bg-white/[0.02] px-4 py-3">
+                <div className="glass-tile rounded-2xl px-4 py-3">
                   <p className="text-xs text-stone-500">Codigo</p>
                   <p className="mt-1 text-xl font-semibold text-stone-100">
                     {(snapshot?.roomCode ?? roomCode) || "----"}
                   </p>
                 </div>
-                <div className="rounded-2xl border border-white/8 bg-white/[0.02] px-4 py-3">
+                <div className="glass-tile rounded-2xl px-4 py-3">
                   <p className="text-xs text-stone-500">Estado</p>
                   <p className="mt-1 text-sm text-stone-300">{liveStatus}</p>
                 </div>
-              </div>
-            </section>
-
-            <section className="rounded-[28px] border border-white/8 bg-black/30 p-5 backdrop-blur">
-              <p className="text-[11px] uppercase tracking-[0.28em] text-stone-500">
-                Otros juegos
-              </p>
-              <div className="mt-4 space-y-3">
-                {gameCards
-                  .filter((game) => game.slug !== "rps")
-                  .map((game) => (
-                    <div
-                      key={game.slug}
-                      className="rounded-2xl border border-white/8 bg-white/[0.02] px-4 py-3"
-                    >
-                      <p className="text-sm font-medium text-stone-200">
-                        {game.title}
-                      </p>
-                      <p className="mt-1 text-xs uppercase tracking-[0.22em] text-stone-500">
-                        {game.eyebrow}
-                      </p>
-                    </div>
-                  ))}
               </div>
             </section>
           </aside>
@@ -744,8 +721,8 @@ function RpsRoomContent() {
 
 function RpsRoomFallback() {
   return (
-    <main className="min-h-screen bg-[#050816] px-4 py-8 text-stone-100">
-      <div className="mx-auto max-w-4xl rounded-[28px] border border-white/8 bg-black/30 p-6 backdrop-blur">
+    <main className="min-h-screen bg-[#020202] px-4 py-8 text-stone-100">
+      <div className="glass-panel mx-auto max-w-4xl rounded-[28px] p-6">
         <p className="text-sm text-stone-300">Cargando sala...</p>
       </div>
     </main>

@@ -1,11 +1,14 @@
 import Link from "next/link";
+import { Search } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { gameCards } from "@/lib/games";
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-[#050816] px-4 py-6 text-stone-100 sm:px-6 lg:px-8">
-      <div className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-6xl flex-col rounded-[32px] border border-white/8 bg-black/30 p-5 shadow-[0_20px_80px_rgba(0,0,0,0.45)] backdrop-blur md:p-8">
+    <main className="min-h-screen bg-[#020202] px-4 py-6 text-stone-100 sm:px-6 lg:px-8">
+      <div className="glass-shell mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-5xl flex-col rounded-[32px] p-5 md:p-8">
         <header className="flex items-center justify-between border-b border-white/8 pb-5">
           <div>
             <p className="text-[11px] uppercase tracking-[0.32em] text-stone-500">
@@ -15,59 +18,59 @@ export default function Home() {
               Menu
             </h1>
           </div>
-          <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-stone-400">
-            Arcade
-          </span>
+
+          <Button
+            aria-label="Buscar juegos"
+            className="shrink-0"
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <Search className="size-4" />
+          </Button>
         </header>
 
-        <section className="mt-8 grid flex-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <section className="mt-8 grid flex-1 grid-cols-1 gap-4 sm:grid-cols-2">
           {gameCards.map((game) => {
             const isLive = game.status === "live";
 
-            return (
-              <article
-                key={game.slug}
-                className="group flex min-h-56 flex-col justify-between rounded-[28px] border border-white/8 bg-white/[0.02] p-5"
-              >
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-[11px] uppercase tracking-[0.28em] text-stone-500">
-                      {game.eyebrow}
+            const content = (
+              <Card className="group h-full min-h-44 overflow-hidden transition hover:border-white/16 hover:bg-white/[0.05]">
+                <CardContent className="flex h-full flex-col justify-between">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-4xl text-stone-700 transition group-hover:text-stone-400">
+                      {isLive ? "01" : "--"}
                     </span>
-                    <span
-                      className={`rounded-full px-3 py-1 text-[11px] uppercase tracking-[0.24em] ${
-                        isLive
-                          ? "border border-emerald-400/15 bg-emerald-300/10 text-emerald-200"
-                          : "border border-white/8 bg-white/[0.03] text-stone-500"
+                    <span className="text-[10px] uppercase tracking-[0.24em] text-stone-600">
+                      {isLive ? "Live" : "Soon"}
+                    </span>
+                  </div>
+
+                  <div className="mt-10 px-1 py-1">
+                    <h2
+                      className={`text-xl font-medium leading-tight sm:text-2xl ${
+                        isLive ? "text-stone-100" : "text-stone-500"
                       }`}
                     >
-                      {isLive ? "Listo" : "Pronto"}
-                    </span>
-                  </div>
-
-                  <div className="space-y-2">
-                    <h2 className="text-2xl font-semibold text-stone-100">
                       {game.title}
                     </h2>
-                    <p className="max-w-sm text-sm leading-6 text-stone-400">
-                      {game.description}
-                    </p>
                   </div>
-                </div>
+                </CardContent>
+              </Card>
+            );
 
-                {isLive ? (
-                  <Link
-                    className="mt-6 inline-flex w-fit rounded-full border border-white/10 bg-white px-4 py-2.5 text-sm font-medium text-black transition hover:border-white hover:bg-stone-100"
-                    href={game.href}
-                  >
-                    Abrir
-                  </Link>
-                ) : (
-                  <span className="mt-6 inline-flex w-fit rounded-full border border-white/8 px-4 py-2.5 text-sm text-stone-500">
-                    Bloqueado
-                  </span>
-                )}
-              </article>
+            return isLive ? (
+              <Link
+                key={game.slug}
+                className="block h-full rounded-[28px] outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+                href={game.href}
+              >
+                {content}
+              </Link>
+            ) : (
+              <div key={game.slug} className="h-full">
+                {content}
+              </div>
             );
           })}
         </section>

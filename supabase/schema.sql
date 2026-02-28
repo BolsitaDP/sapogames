@@ -1,4 +1,4 @@
-create extension if not exists pgcrypto;
+create extension if not exists pgcrypto with schema extensions;
 
 create table if not exists public.game_rooms (
   id uuid primary key default gen_random_uuid(),
@@ -127,7 +127,7 @@ create or replace function public.create_rps_room(host_nickname text)
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   v_room public.game_rooms;
@@ -167,7 +167,7 @@ create or replace function public.join_rps_room(room_code_input text, player_nic
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   v_room public.game_rooms;
@@ -226,7 +226,7 @@ create or replace function public.submit_rps_move(
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   v_room public.game_rooms;
@@ -341,7 +341,7 @@ create or replace function public.start_next_rps_round(
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   v_room public.game_rooms;
@@ -423,7 +423,7 @@ create or replace function public.get_rps_room_snapshot(room_code_input text)
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   v_room public.game_rooms;
