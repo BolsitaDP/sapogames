@@ -63,6 +63,15 @@ export const gameCards: GameCard[] = [
     status: "live",
   },
   {
+    slug: "imp",
+    title: "Impostor",
+    eyebrow: "Listo para jugar",
+    description:
+      "Palabra secreta, un impostor, orden cambiante y votaciones hasta dejarlo al descubierto.",
+    href: "/games/imp/",
+    status: "live",
+  },
+  {
     slug: "guess",
     title: "Adivina el numero",
     eyebrow: "Proximamente",

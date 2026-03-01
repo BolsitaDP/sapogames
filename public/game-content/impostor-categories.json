@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "id": "animales",
+      "label": "Animales",
+      "words": [
+        "Leon",
+        "Tiburon",
+        "Pinguino",
+        "Elefante",
+        "Canguro",
+        "Jirafa",
+        "Delfin",
+        "Lobo",
+        "Pulpo",
+        "Koala"
+      ]
+    },
+    {
+      "id": "comida",
+      "label": "Comida",
+      "words": [
+        "Pizza",
+        "Hamburguesa",
+        "Sushi",
+        "Taco",
+        "Milanesa",
+        "Paella",
+        "Empanada",
+        "Helado",
+        "Ramen",
+        "Asado"
+      ]
+    },
+    {
+      "id": "peliculas",
+      "label": "Peliculas",
+      "words": [
+        "Titanic",
+        "Avatar",
+        "Gladiador",
+        "Coco",
+        "Shrek",
+        "Rocky",
+        "Frozen",
+        "Amelie",
+        "Cars",
+        "Memento"
+      ]
+    },
+    {
+      "id": "lugares",
+      "label": "Lugares",
+      "words": [
+        "Playa",
+        "Aeropuerto",
+        "Biblioteca",
+        "Hospital",
+        "Museo",
+        "Montana",
+        "Desierto",
+        "Parque",
+        "Teatro",
+        "Estadio"
+      ]
+    },
+    {
+      "id": "objetos",
+      "label": "Objetos",
+      "words": [
+        "Telefono",
+        "Lampara",
+        "Reloj",
+        "Martillo",
+        "Paraguas",
+        "Teclado",
+        "Mochila",
+        "Silla",
+        "Camara",
+        "Espejo"
+      ]
+    },
+    {
+      "id": "profesiones",
+      "label": "Profesiones",
+      "words": [
+        "Medico",
+        "Chef",
+        "Piloto",
+        "Arquitecto",
+        "Abogado",
+        "Bombero",
+        "Actor",
+        "Profesor",
+        "Musico",
+        "Carpintero"
+      ]
+    }
+  ]
+}

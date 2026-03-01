@@ -13,7 +13,7 @@ create table if not exists public.game_rooms (
 alter table public.game_rooms drop constraint if exists game_rooms_game_slug_check;
 alter table public.game_rooms
   add constraint game_rooms_game_slug_check
-  check (game_slug in ('rps', 'ttt', 'bj', 'bjd', 'bb', 'spot'));
+  check (game_slug in ('rps', 'ttt', 'bj', 'bjd', 'bb', 'spot', 'imp'));
 
 create table if not exists public.room_players (
   id uuid primary key default gen_random_uuid(),
@@ -179,6 +179,59 @@ create table if not exists public.spot_votes (
   unique (round_id, voter_player_id)
 );
 
+create table if not exists public.imp_player_states (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.game_rooms(id) on delete cascade,
+  player_id uuid not null references public.room_players(id) on delete cascade,
+  is_eliminated boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (room_id, player_id)
+);
+
+create table if not exists public.imp_matches (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.game_rooms(id) on delete cascade,
+  match_number integer not null,
+  phase text not null default 'clue' check (phase in ('clue', 'vote', 'revealed', 'finished')),
+  category_id text not null,
+  category_label text not null,
+  secret_word text not null,
+  impostor_player_id uuid not null references public.room_players(id) on delete cascade,
+  participant_player_ids uuid[] not null default array[]::uuid[],
+  round_number integer not null default 1,
+  turn_order_player_ids uuid[] not null default array[]::uuid[],
+  current_turn_player_id uuid references public.room_players(id) on delete set null,
+  eliminated_player_id uuid references public.room_players(id) on delete set null,
+  vote_tied_player_ids uuid[] not null default array[]::uuid[],
+  winner_team text check (winner_team in ('crew', 'impostor')),
+  created_at timestamptz not null default now(),
+  resolved_at timestamptz
+);
+
+create table if not exists public.imp_clues (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.game_rooms(id) on delete cascade,
+  match_id uuid not null references public.imp_matches(id) on delete cascade,
+  round_number integer not null,
+  player_id uuid not null references public.room_players(id) on delete cascade,
+  clue_text text not null,
+  turn_index integer not null,
+  created_at timestamptz not null default now(),
+  unique (match_id, round_number, player_id)
+);
+
+create table if not exists public.imp_votes (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.game_rooms(id) on delete cascade,
+  match_id uuid not null references public.imp_matches(id) on delete cascade,
+  round_number integer not null,
+  voter_player_id uuid not null references public.room_players(id) on delete cascade,
+  target_player_id uuid not null references public.room_players(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (match_id, round_number, voter_player_id)
+);
+
 do $$
 begin
   if not exists (
@@ -263,6 +316,18 @@ begin
   if not exists (
     select 1
     from pg_constraint
+    where conname = 'imp_matches_room_match_unique'
+  ) then
+    alter table public.imp_matches
+      add constraint imp_matches_room_match_unique unique (room_id, match_number);
+  end if;
+end $$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
     where conname = 'game_rooms_host_player_fk'
   ) then
     alter table public.game_rooms
@@ -280,6 +345,885 @@ as $$
 begin
   new.updated_at = now();
   return new;
+end;
+$$;
+
+create or replace function public.create_imp_room(host_nickname text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_host public.room_players;
+  v_secret text := encode(gen_random_bytes(16), 'hex');
+begin
+  if host_nickname is null or btrim(host_nickname) = '' then
+    raise exception 'El apodo no puede estar vacio.';
+  end if;
+
+  insert into public.game_rooms (code, game_slug)
+  values (public.generate_room_code(), 'imp')
+  returning * into v_room;
+
+  insert into public.room_players (room_id, nickname, is_host, player_secret)
+  values (v_room.id, left(btrim(host_nickname), 24), true, v_secret)
+  returning * into v_host;
+
+  update public.game_rooms
+  set host_player_id = v_host.id
+  where id = v_room.id;
+
+  return jsonb_build_object(
+    'nickname', v_host.nickname,
+    'playerId', v_host.id,
+    'playerSecret', v_secret,
+    'roomCode', v_room.code,
+    'roomId', v_room.id
+  );
+end;
+$$;
+
+create or replace function public.join_imp_room(room_code_input text, player_nickname text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_player public.room_players;
+  v_secret text := encode(gen_random_bytes(16), 'hex');
+  v_players_count integer;
+begin
+  if player_nickname is null or btrim(player_nickname) = '' then
+    raise exception 'El apodo no puede estar vacio.';
+  end if;
+
+  select *
+  into v_room
+  from public.game_rooms
+  where code = upper(btrim(room_code_input))
+    and game_slug = 'imp'
+  limit 1;
+
+  if not found then
+    raise exception 'La sala no existe.';
+  end if;
+
+  select count(*)
+  into v_players_count
+  from public.room_players
+  where room_id = v_room.id;
+
+  if v_players_count >= 8 then
+    raise exception 'La sala ya esta completa.';
+  end if;
+
+  insert into public.room_players (room_id, nickname, is_host, player_secret)
+  values (v_room.id, left(btrim(player_nickname), 24), false, v_secret)
+  returning * into v_player;
+
+  return jsonb_build_object(
+    'nickname', v_player.nickname,
+    'playerId', v_player.id,
+    'playerSecret', v_secret,
+    'roomCode', v_room.code,
+    'roomId', v_room.id
+  );
+end;
+$$;
+
+create or replace function public.start_imp_match(
+  room_code_input text,
+  player_id_input uuid,
+  player_secret_input text,
+  category_id_input text,
+  category_label_input text,
+  category_words_input text[]
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_player public.room_players;
+  v_previous_match public.imp_matches;
+  v_participant_ids uuid[];
+  v_participant_count integer;
+  v_word_count integer;
+  v_secret_word text;
+  v_impostor_player_id uuid;
+  v_turn_order uuid[];
+  v_new_match public.imp_matches;
+begin
+  if nullif(btrim(coalesce(category_id_input, '')), '') is null then
+    raise exception 'Selecciona una categoria.';
+  end if;
+
+  if nullif(btrim(coalesce(category_label_input, '')), '') is null then
+    raise exception 'La categoria no es valida.';
+  end if;
+
+  if coalesce(array_length(category_words_input, 1), 0) = 0 then
+    raise exception 'La categoria no tiene palabras.';
+  end if;
+
+  select *
+  into v_room
+  from public.game_rooms
+  where code = upper(btrim(room_code_input))
+    and game_slug = 'imp'
+  limit 1;
+
+  if not found then
+    raise exception 'La sala no existe.';
+  end if;
+
+  select *
+  into v_player
+  from public.room_players
+  where id = player_id_input
+    and room_id = v_room.id
+    and player_secret = player_secret_input
+  limit 1;
+
+  if not found then
+    raise exception 'La sesion del jugador no es valida.';
+  end if;
+
+  if not v_player.is_host then
+    raise exception 'Solo el host puede empezar la partida.';
+  end if;
+
+  select *
+  into v_previous_match
+  from public.imp_matches
+  where room_id = v_room.id
+  order by match_number desc
+  limit 1;
+
+  if v_previous_match.id is not null and v_previous_match.phase <> 'finished' then
+    raise exception 'La partida actual todavia no termina.';
+  end if;
+
+  select array_agg(id order by joined_at asc), count(*)
+  into v_participant_ids, v_participant_count
+  from public.room_players
+  where room_id = v_room.id;
+
+  if v_participant_count < 3 then
+    raise exception 'Necesitas al menos 3 jugadores.';
+  end if;
+
+  v_word_count := coalesce(array_length(category_words_input, 1), 0);
+  v_secret_word := left(
+    btrim(category_words_input[1 + floor(random() * v_word_count)::integer]),
+    64
+  );
+
+  if v_secret_word = '' then
+    raise exception 'La categoria no tiene palabras validas.';
+  end if;
+
+  v_impostor_player_id := v_participant_ids[
+    1 + floor(random() * v_participant_count)::integer
+  ];
+  v_turn_order := public.shuffle_uuid_array(v_participant_ids);
+
+  delete from public.imp_player_states
+  where room_id = v_room.id;
+
+  insert into public.imp_player_states (room_id, player_id, is_eliminated)
+  select v_room.id, player_id, false
+  from unnest(v_participant_ids) as player_id;
+
+  insert into public.imp_matches (
+    room_id,
+    match_number,
+    phase,
+    category_id,
+    category_label,
+    secret_word,
+    impostor_player_id,
+    participant_player_ids,
+    round_number,
+    turn_order_player_ids,
+    current_turn_player_id,
+    vote_tied_player_ids,
+    winner_team
+  )
+  values (
+    v_room.id,
+    coalesce(v_previous_match.match_number, 0) + 1,
+    'clue',
+    left(btrim(category_id_input), 80),
+    left(btrim(category_label_input), 80),
+    v_secret_word,
+    v_impostor_player_id,
+    v_participant_ids,
+    1,
+    v_turn_order,
+    v_turn_order[1],
+    array[]::uuid[],
+    null
+  )
+  returning * into v_new_match;
+
+  update public.game_rooms
+  set status = 'playing'
+  where id = v_room.id;
+
+  return jsonb_build_object(
+    'matchId', v_new_match.id,
+    'matchNumber', v_new_match.match_number,
+    'roundNumber', v_new_match.round_number
+  );
+end;
+$$;
+
+create or replace function public.submit_imp_clue(
+  room_code_input text,
+  player_id_input uuid,
+  player_secret_input text,
+  clue_text_input text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_player public.room_players;
+  v_match public.imp_matches;
+  v_player_state public.imp_player_states;
+  v_clue_text text := left(btrim(coalesce(clue_text_input, '')), 80);
+  v_turn_index integer;
+  v_clue_count integer;
+  v_active_count integer;
+begin
+  if v_clue_text = '' then
+    raise exception 'La pista no puede estar vacia.';
+  end if;
+
+  select *
+  into v_room
+  from public.game_rooms
+  where code = upper(btrim(room_code_input))
+    and game_slug = 'imp'
+  limit 1;
+
+  if not found then
+    raise exception 'La sala no existe.';
+  end if;
+
+  select *
+  into v_player
+  from public.room_players
+  where id = player_id_input
+    and room_id = v_room.id
+    and player_secret = player_secret_input
+  limit 1;
+
+  if not found then
+    raise exception 'La sesion del jugador no es valida.';
+  end if;
+
+  select *
+  into v_match
+  from public.imp_matches
+  where room_id = v_room.id
+  order by match_number desc
+  limit 1
+  for update;
+
+  if not found then
+    raise exception 'La partida no existe.';
+  end if;
+
+  if v_match.phase <> 'clue' then
+    raise exception 'Ahora no toca dar pistas.';
+  end if;
+
+  if not (v_player.id = any(v_match.participant_player_ids)) then
+    raise exception 'Entraste con la partida empezada. Espera a la siguiente.';
+  end if;
+
+  select *
+  into v_player_state
+  from public.imp_player_states
+  where room_id = v_room.id
+    and player_id = v_player.id
+  limit 1;
+
+  if not found or v_player_state.is_eliminated then
+    raise exception 'Ya no sigues en la partida.';
+  end if;
+
+  if v_match.current_turn_player_id <> v_player.id then
+    raise exception 'No es tu turno.';
+  end if;
+
+  v_turn_index := array_position(v_match.turn_order_player_ids, v_player.id);
+
+  if v_turn_index is null then
+    raise exception 'El orden de turnos no es valido.';
+  end if;
+
+  insert into public.imp_clues (
+    room_id,
+    match_id,
+    round_number,
+    player_id,
+    clue_text,
+    turn_index
+  )
+  values (
+    v_room.id,
+    v_match.id,
+    v_match.round_number,
+    v_player.id,
+    v_clue_text,
+    v_turn_index
+  );
+
+  select count(*)
+  into v_clue_count
+  from public.imp_clues
+  where match_id = v_match.id
+    and round_number = v_match.round_number;
+
+  select count(*)
+  into v_active_count
+  from public.imp_player_states
+  where room_id = v_room.id
+    and is_eliminated = false;
+
+  if v_clue_count >= v_active_count then
+    update public.imp_matches
+    set
+      phase = 'vote',
+      current_turn_player_id = null
+    where id = v_match.id;
+  else
+    update public.imp_matches
+    set current_turn_player_id = v_match.turn_order_player_ids[v_clue_count + 1]
+    where id = v_match.id;
+  end if;
+
+  return jsonb_build_object(
+    'ok', true
+  );
+end;
+$$;
+
+create or replace function public.submit_imp_vote(
+  room_code_input text,
+  player_id_input uuid,
+  player_secret_input text,
+  target_player_id_input uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_player public.room_players;
+  v_match public.imp_matches;
+  v_player_state public.imp_player_states;
+  v_target_state public.imp_player_states;
+  v_vote_count integer;
+  v_active_count integer;
+  v_highest_count integer;
+  v_leader_ids uuid[];
+  v_eliminated_player_id uuid;
+  v_remaining_active_count integer;
+begin
+  select *
+  into v_room
+  from public.game_rooms
+  where code = upper(btrim(room_code_input))
+    and game_slug = 'imp'
+  limit 1;
+
+  if not found then
+    raise exception 'La sala no existe.';
+  end if;
+
+  select *
+  into v_player
+  from public.room_players
+  where id = player_id_input
+    and room_id = v_room.id
+    and player_secret = player_secret_input
+  limit 1;
+
+  if not found then
+    raise exception 'La sesion del jugador no es valida.';
+  end if;
+
+  select *
+  into v_match
+  from public.imp_matches
+  where room_id = v_room.id
+  order by match_number desc
+  limit 1
+  for update;
+
+  if not found then
+    raise exception 'La partida no existe.';
+  end if;
+
+  if v_match.phase <> 'vote' then
+    raise exception 'Ahora no toca votar.';
+  end if;
+
+  if not (v_player.id = any(v_match.participant_player_ids)) then
+    raise exception 'Entraste con la partida empezada. Espera a la siguiente.';
+  end if;
+
+  select *
+  into v_player_state
+  from public.imp_player_states
+  where room_id = v_room.id
+    and player_id = v_player.id
+  limit 1;
+
+  if not found or v_player_state.is_eliminated then
+    raise exception 'Ya no sigues en la partida.';
+  end if;
+
+  select *
+  into v_target_state
+  from public.imp_player_states
+  where room_id = v_room.id
+    and player_id = target_player_id_input
+  limit 1;
+
+  if not found or v_target_state.is_eliminated then
+    raise exception 'Ese jugador ya no puede recibir votos.';
+  end if;
+
+  insert into public.imp_votes (
+    room_id,
+    match_id,
+    round_number,
+    voter_player_id,
+    target_player_id
+  )
+  values (
+    v_room.id,
+    v_match.id,
+    v_match.round_number,
+    v_player.id,
+    target_player_id_input
+  )
+  on conflict (match_id, round_number, voter_player_id)
+  do update set
+    target_player_id = excluded.target_player_id,
+    created_at = now();
+
+  select count(*)
+  into v_vote_count
+  from public.imp_votes
+  where match_id = v_match.id
+    and round_number = v_match.round_number;
+
+  select count(*)
+  into v_active_count
+  from public.imp_player_states
+  where room_id = v_room.id
+    and is_eliminated = false;
+
+  if v_vote_count >= v_active_count then
+    with vote_totals as (
+      select
+        target_player_id as player_id,
+        count(*)::integer as vote_count
+      from public.imp_votes
+      where match_id = v_match.id
+        and round_number = v_match.round_number
+      group by target_player_id
+    ),
+    leaders as (
+      select player_id, vote_count
+      from vote_totals
+      where vote_count = (
+        select max(vote_count)
+        from vote_totals
+      )
+      order by player_id
+    )
+    select
+      max(vote_count),
+      array_agg(player_id order by player_id)
+    into v_highest_count, v_leader_ids
+    from leaders;
+
+    if coalesce(array_length(v_leader_ids, 1), 0) > 1 then
+      update public.imp_matches
+      set
+        phase = 'revealed',
+        current_turn_player_id = null,
+        eliminated_player_id = null,
+        vote_tied_player_ids = coalesce(v_leader_ids, array[]::uuid[])
+      where id = v_match.id;
+    else
+      v_eliminated_player_id := v_leader_ids[1];
+
+      update public.imp_player_states
+      set is_eliminated = true
+      where room_id = v_room.id
+        and player_id = v_eliminated_player_id;
+
+      select count(*)
+      into v_remaining_active_count
+      from public.imp_player_states
+      where room_id = v_room.id
+        and is_eliminated = false;
+
+      if v_eliminated_player_id = v_match.impostor_player_id then
+        update public.imp_matches
+        set
+          phase = 'finished',
+          current_turn_player_id = null,
+          eliminated_player_id = v_eliminated_player_id,
+          vote_tied_player_ids = array[]::uuid[],
+          winner_team = 'crew',
+          resolved_at = now()
+        where id = v_match.id;
+
+        update public.game_rooms
+        set status = 'finished'
+        where id = v_room.id;
+      elsif v_remaining_active_count <= 2 then
+        update public.imp_matches
+        set
+          phase = 'finished',
+          current_turn_player_id = null,
+          eliminated_player_id = v_eliminated_player_id,
+          vote_tied_player_ids = array[]::uuid[],
+          winner_team = 'impostor',
+          resolved_at = now()
+        where id = v_match.id;
+
+        update public.game_rooms
+        set status = 'finished'
+        where id = v_room.id;
+      else
+        update public.imp_matches
+        set
+          phase = 'revealed',
+          current_turn_player_id = null,
+          eliminated_player_id = v_eliminated_player_id,
+          vote_tied_player_ids = array[]::uuid[]
+        where id = v_match.id;
+      end if;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'ok', true
+  );
+end;
+$$;
+
+create or replace function public.advance_imp_round(
+  room_code_input text,
+  player_id_input uuid,
+  player_secret_input text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_player public.room_players;
+  v_match public.imp_matches;
+  v_active_player_ids uuid[];
+begin
+  select *
+  into v_room
+  from public.game_rooms
+  where code = upper(btrim(room_code_input))
+    and game_slug = 'imp'
+  limit 1;
+
+  if not found then
+    raise exception 'La sala no existe.';
+  end if;
+
+  select *
+  into v_player
+  from public.room_players
+  where id = player_id_input
+    and room_id = v_room.id
+    and player_secret = player_secret_input
+  limit 1;
+
+  if not found then
+    raise exception 'La sesion del jugador no es valida.';
+  end if;
+
+  if not v_player.is_host then
+    raise exception 'Solo el host puede abrir la siguiente ronda.';
+  end if;
+
+  select *
+  into v_match
+  from public.imp_matches
+  where room_id = v_room.id
+  order by match_number desc
+  limit 1
+  for update;
+
+  if not found then
+    raise exception 'La partida no existe.';
+  end if;
+
+  if v_match.phase <> 'revealed' then
+    raise exception 'Todavia no puedes abrir la siguiente ronda.';
+  end if;
+
+  select public.shuffle_uuid_array(array_agg(player_id order by player_id))
+  into v_active_player_ids
+  from public.imp_player_states
+  where room_id = v_room.id
+    and is_eliminated = false;
+
+  if coalesce(array_length(v_active_player_ids, 1), 0) < 3 then
+    raise exception 'La partida ya deberia haber terminado.';
+  end if;
+
+  update public.imp_matches
+  set
+    phase = 'clue',
+    round_number = v_match.round_number + 1,
+    turn_order_player_ids = v_active_player_ids,
+    current_turn_player_id = v_active_player_ids[1],
+    eliminated_player_id = null,
+    vote_tied_player_ids = array[]::uuid[]
+  where id = v_match.id;
+
+  update public.game_rooms
+  set status = 'playing'
+  where id = v_room.id;
+
+  return jsonb_build_object(
+    'ok', true,
+    'roundNumber', v_match.round_number + 1
+  );
+end;
+$$;
+
+create or replace function public.get_imp_room_snapshot(
+  room_code_input text,
+  player_id_input uuid,
+  player_secret_input text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_room public.game_rooms;
+  v_player public.room_players;
+  v_match public.imp_matches;
+begin
+  select *
+  into v_room
+  from public.game_rooms
+  where code = upper(btrim(room_code_input))
+    and game_slug = 'imp'
+  limit 1;
+
+  if not found then
+    raise exception 'La sala no existe.';
+  end if;
+
+  select *
+  into v_player
+  from public.room_players
+  where id = player_id_input
+    and room_id = v_room.id
+    and player_secret = player_secret_input
+  limit 1;
+
+  if not found then
+    raise exception 'La sesion del jugador no es valida.';
+  end if;
+
+  select *
+  into v_match
+  from public.imp_matches
+  where room_id = v_room.id
+  order by match_number desc
+  limit 1;
+
+  return jsonb_build_object(
+    'roomId', v_room.id,
+    'roomCode', v_room.code,
+    'gameSlug', v_room.game_slug,
+    'roomStatus', v_room.status,
+    'createdAt', v_room.created_at,
+    'playerCount', (
+      select count(*)
+      from public.room_players
+      where room_id = v_room.id
+    ),
+    'players', coalesce((
+      select jsonb_agg(
+        jsonb_build_object(
+          'id', p.id,
+          'nickname', p.nickname,
+          'isHost', p.is_host,
+          'joinedAt', p.joined_at,
+          'isInMatch', case
+            when v_match.id is null then false
+            else p.id = any(v_match.participant_player_ids)
+          end,
+          'isEliminated', case
+            when v_match.id is null then false
+            when p.id = any(v_match.participant_player_ids) then coalesce(s.is_eliminated, false)
+            else false
+          end
+        )
+        order by p.joined_at asc
+      )
+      from public.room_players p
+      left join public.imp_player_states s
+        on s.room_id = v_room.id
+       and s.player_id = p.id
+      where p.room_id = v_room.id
+    ), '[]'::jsonb),
+    'currentMatch', case
+      when v_match.id is null then null
+      else jsonb_build_object(
+        'id', v_match.id,
+        'matchNumber', v_match.match_number,
+        'phase', v_match.phase,
+        'categoryId', v_match.category_id,
+        'categoryLabel', v_match.category_label,
+        'roundNumber', v_match.round_number,
+        'participantPlayerIds', to_jsonb(v_match.participant_player_ids),
+        'turnOrderPlayerIds', to_jsonb(v_match.turn_order_player_ids),
+        'currentTurnPlayerId', v_match.current_turn_player_id,
+        'currentTurnNickname', (
+          select nickname
+          from public.room_players
+          where id = v_match.current_turn_player_id
+        ),
+        'activePlayerCount', (
+          select count(*)
+          from public.imp_player_states
+          where room_id = v_room.id
+            and is_eliminated = false
+        ),
+        'selfRole', case
+          when not (v_player.id = any(v_match.participant_player_ids)) then null
+          when v_player.id = v_match.impostor_player_id then 'impostor'
+          else 'civilian'
+        end,
+        'selfWord', case
+          when not (v_player.id = any(v_match.participant_player_ids)) then null
+          when v_player.id = v_match.impostor_player_id then 'Impostor'
+          else v_match.secret_word
+        end,
+        'revealedWord', case
+          when v_match.phase = 'finished' then v_match.secret_word
+          else null
+        end,
+        'impostorPlayerId', case
+          when v_match.phase = 'finished' then v_match.impostor_player_id
+          else null
+        end,
+        'impostorNickname', case
+          when v_match.phase = 'finished' then (
+            select nickname
+            from public.room_players
+            where id = v_match.impostor_player_id
+          )
+          else null
+        end,
+        'submittedCluePlayerIds', coalesce((
+          select jsonb_agg(c.player_id order by c.turn_index asc)
+          from public.imp_clues c
+          where c.match_id = v_match.id
+            and c.round_number = v_match.round_number
+        ), '[]'::jsonb),
+        'submittedVotePlayerIds', coalesce((
+          select jsonb_agg(v.voter_player_id order by v.created_at asc)
+          from public.imp_votes v
+          where v.match_id = v_match.id
+            and v.round_number = v_match.round_number
+        ), '[]'::jsonb),
+        'selfVoteTargetPlayerId', (
+          select v.target_player_id
+          from public.imp_votes v
+          where v.match_id = v_match.id
+            and v.round_number = v_match.round_number
+            and v.voter_player_id = v_player.id
+          limit 1
+        ),
+        'eliminatedPlayerId', v_match.eliminated_player_id,
+        'eliminatedNickname', (
+          select nickname
+          from public.room_players
+          where id = v_match.eliminated_player_id
+        ),
+        'winnerTeam', v_match.winner_team,
+        'voteTiedPlayerIds', to_jsonb(v_match.vote_tied_player_ids),
+        'voteTiedNicknames', coalesce((
+          select jsonb_agg(p.nickname order by p.joined_at asc)
+          from public.room_players p
+          where p.id = any(v_match.vote_tied_player_ids)
+        ), '[]'::jsonb),
+        'clues', coalesce((
+          select jsonb_agg(
+            jsonb_build_object(
+              'playerId', c.player_id,
+              'nickname', p.nickname,
+              'clueText', c.clue_text,
+              'turnIndex', c.turn_index
+            )
+            order by c.turn_index asc
+          )
+          from public.imp_clues c
+          join public.room_players p on p.id = c.player_id
+          where c.match_id = v_match.id
+            and c.round_number = v_match.round_number
+        ), '[]'::jsonb),
+        'revealedVotes', case
+          when v_match.phase in ('revealed', 'finished') then coalesce((
+            select jsonb_agg(
+              jsonb_build_object(
+                'voterPlayerId', v.voter_player_id,
+                'voterNickname', voter.nickname,
+                'targetPlayerId', v.target_player_id,
+                'targetNickname', target.nickname
+              )
+              order by voter.joined_at asc
+            )
+            from public.imp_votes v
+            join public.room_players voter on voter.id = v.voter_player_id
+            join public.room_players target on target.id = v.target_player_id
+            where v.match_id = v_match.id
+              and v.round_number = v_match.round_number
+          ), '[]'::jsonb)
+          else '[]'::jsonb
+        end
+      )
+    end
+  );
 end;
 $$;
 
@@ -313,6 +1257,12 @@ before update on public.bb_player_hands
 for each row
 execute function public.touch_updated_at();
 
+drop trigger if exists trg_imp_player_states_updated_at on public.imp_player_states;
+create trigger trg_imp_player_states_updated_at
+before update on public.imp_player_states
+for each row
+execute function public.touch_updated_at();
+
 create or replace function public.generate_room_code(code_length integer default 6)
 returns text
 language plpgsql
@@ -338,6 +1288,15 @@ begin
 
   return candidate;
 end;
+$$;
+
+create or replace function public.shuffle_uuid_array(values_input uuid[])
+returns uuid[]
+language sql
+volatile
+as $$
+  select coalesce(array_agg(value order by random()), array[]::uuid[])
+  from unnest(coalesce(values_input, array[]::uuid[])) as value;
 $$;
 
 create or replace function public.resolve_rps_winner(first_choice text, second_choice text)
@@ -3873,6 +4832,10 @@ alter table public.bb_rounds enable row level security;
 alter table public.bb_player_hands enable row level security;
 alter table public.spot_rounds enable row level security;
 alter table public.spot_votes enable row level security;
+alter table public.imp_player_states enable row level security;
+alter table public.imp_matches enable row level security;
+alter table public.imp_clues enable row level security;
+alter table public.imp_votes enable row level security;
 
 drop policy if exists "public read rooms" on public.game_rooms;
 create policy "public read rooms"
@@ -3916,12 +4879,21 @@ on public.spot_rounds
 for select
 using (true);
 
+drop policy if exists "public read imp matches" on public.imp_matches;
+create policy "public read imp matches"
+on public.imp_matches
+for select
+using (true);
+
 drop policy if exists "public read bjd rounds" on public.bjd_rounds;
 drop policy if exists "public read bjd hands" on public.bjd_player_hands;
 drop policy if exists "public read bb states" on public.bb_player_states;
 drop policy if exists "public read bb rounds" on public.bb_rounds;
 drop policy if exists "public read bb hands" on public.bb_player_hands;
 drop policy if exists "public read spot votes" on public.spot_votes;
+drop policy if exists "public read imp states" on public.imp_player_states;
+drop policy if exists "public read imp clues" on public.imp_clues;
+drop policy if exists "public read imp votes" on public.imp_votes;
 
 grant select on public.game_rooms to anon, authenticated;
 grant select on public.room_players to anon, authenticated;
@@ -3930,6 +4902,7 @@ grant select on public.ttt_rounds to anon, authenticated;
 grant select on public.bj_rounds to anon, authenticated;
 grant select on public.bj_player_hands to anon, authenticated;
 grant select on public.spot_rounds to anon, authenticated;
+grant select on public.imp_matches to anon, authenticated;
 revoke all on public.rps_moves from anon, authenticated;
 revoke all on public.bjd_rounds from anon, authenticated;
 revoke all on public.bjd_player_hands from anon, authenticated;
@@ -3937,6 +4910,9 @@ revoke all on public.bb_player_states from anon, authenticated;
 revoke all on public.bb_rounds from anon, authenticated;
 revoke all on public.bb_player_hands from anon, authenticated;
 revoke all on public.spot_votes from anon, authenticated;
+revoke all on public.imp_player_states from anon, authenticated;
+revoke all on public.imp_clues from anon, authenticated;
+revoke all on public.imp_votes from anon, authenticated;
 
 revoke all on function public.create_rps_room(text) from public;
 revoke all on function public.join_rps_room(text, text) from public;
@@ -3969,6 +4945,13 @@ revoke all on function public.join_spot_room(text, text) from public;
 revoke all on function public.start_next_spot_round(text, uuid, text, text, text) from public;
 revoke all on function public.submit_spot_vote(text, uuid, text, uuid) from public;
 revoke all on function public.get_spot_room_snapshot(text, uuid, text) from public;
+revoke all on function public.create_imp_room(text) from public;
+revoke all on function public.join_imp_room(text, text) from public;
+revoke all on function public.start_imp_match(text, uuid, text, text, text, text[]) from public;
+revoke all on function public.submit_imp_clue(text, uuid, text, text) from public;
+revoke all on function public.submit_imp_vote(text, uuid, text, uuid) from public;
+revoke all on function public.advance_imp_round(text, uuid, text) from public;
+revoke all on function public.get_imp_room_snapshot(text, uuid, text) from public;
 
 grant execute on function public.create_rps_room(text) to anon, authenticated;
 grant execute on function public.join_rps_room(text, text) to anon, authenticated;
@@ -4001,6 +4984,13 @@ grant execute on function public.join_spot_room(text, text) to anon, authenticat
 grant execute on function public.start_next_spot_round(text, uuid, text, text, text) to anon, authenticated;
 grant execute on function public.submit_spot_vote(text, uuid, text, uuid) to anon, authenticated;
 grant execute on function public.get_spot_room_snapshot(text, uuid, text) to anon, authenticated;
+grant execute on function public.create_imp_room(text) to anon, authenticated;
+grant execute on function public.join_imp_room(text, text) to anon, authenticated;
+grant execute on function public.start_imp_match(text, uuid, text, text, text, text[]) to anon, authenticated;
+grant execute on function public.submit_imp_clue(text, uuid, text, text) to anon, authenticated;
+grant execute on function public.submit_imp_vote(text, uuid, text, uuid) to anon, authenticated;
+grant execute on function public.advance_imp_round(text, uuid, text) to anon, authenticated;
+grant execute on function public.get_imp_room_snapshot(text, uuid, text) to anon, authenticated;
 
 do $$
 begin
@@ -4079,6 +5069,17 @@ begin
       and cls.relname = 'spot_rounds'
   ) then
     alter publication supabase_realtime add table public.spot_rounds;
+  end if;
+
+  if not exists (
+    select 1
+    from pg_publication_rel rel
+    join pg_class cls on cls.oid = rel.prrelid
+    join pg_publication pub on pub.oid = rel.prpubid
+    where pub.pubname = 'supabase_realtime'
+      and cls.relname = 'imp_matches'
+  ) then
+    alter publication supabase_realtime add table public.imp_matches;
   end if;
 
 end $$;
