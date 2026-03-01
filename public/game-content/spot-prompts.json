@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "prompts": [
+    {
+      "id": "spot-001",
+      "category": "amistad",
+      "text": "Quien siempre dice que ya va saliendo y todavia sigue en la casa?"
+    },
+    {
+      "id": "spot-002",
+      "category": "comida",
+      "text": "Quien probablemente pediria postre incluso despues de una cena enorme?"
+    },
+    {
+      "id": "spot-003",
+      "category": "viajes",
+      "text": "Quien tiene mas chance de perder el vuelo por distraerse?"
+    },
+    {
+      "id": "spot-004",
+      "category": "fiesta",
+      "text": "Quien es mas probable que arme el plan y luego lo cancele a ultimo momento?"
+    },
+    {
+      "id": "spot-005",
+      "category": "trabajo",
+      "text": "Quien sobreviviria mejor a una reunion eterna sin decir una sola palabra?"
+    },
+    {
+      "id": "spot-006",
+      "category": "series",
+      "text": "Quien pisaria un spoiler sin culpa y seguiria como si nada?"
+    },
+    {
+      "id": "spot-007",
+      "category": "hogar",
+      "text": "Quien se olvidaria primero de regar una planta?"
+    },
+    {
+      "id": "spot-008",
+      "category": "tecnologia",
+      "text": "Quien cambiaria de celular solo porque el color nuevo esta bueno?"
+    },
+    {
+      "id": "spot-009",
+      "category": "viajes",
+      "text": "Quien seria capaz de hablar con desconocidos en cualquier fila?"
+    },
+    {
+      "id": "spot-010",
+      "category": "amistad",
+      "text": "Quien manda mas audios de mas de dos minutos?"
+    },
+    {
+      "id": "spot-011",
+      "category": "comida",
+      "text": "Quien probablemente comeria papas ajenas sin pedir permiso?"
+    },
+    {
+      "id": "spot-012",
+      "category": "caos",
+      "text": "Quien es mas probable que convierta algo simple en una historia larguisima?"
+    }
+  ]
+}

@@ -54,6 +54,15 @@ export const gameCards: GameCard[] = [
     status: "live",
   },
   {
+    slug: "spot",
+    title: "Amigos suyos",
+    eyebrow: "Listo para jugar",
+    description:
+      "Cartas sociales, voto simultaneo y marcador abierto para seguir mientras el grupo quiera.",
+    href: "/games/spot/",
+    status: "live",
+  },
+  {
     slug: "guess",
     title: "Adivina el numero",
     eyebrow: "Proximamente",
