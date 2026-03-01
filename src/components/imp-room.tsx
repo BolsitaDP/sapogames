@@ -972,14 +972,6 @@ function ImpRoomContent() {
                       <h3 className="mt-4 text-2xl font-semibold text-stone-100">
                         {resultSummary()}
                       </h3>
-                      {currentMatch.phase === "finished" ? (
-                        <p className="mt-3 text-sm text-stone-300">
-                          {t("imp.finalReveal", {
-                            impostor: currentMatch.impostorNickname ?? "",
-                            word: currentMatch.revealedWord ?? "",
-                          })}
-                        </p>
-                      ) : null}
                     </div>
 
                     <div className="glass-tile rounded-[24px] p-5">
